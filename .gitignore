@@ -1,0 +1,48 @@
+# ── Python ─────────────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+
+# ── Data & large binaries ───────────────────────────────────────────────────
+data/raw/
+data/processed/
+data/models/
+data/results/
+*.h5ad
+*.h5
+*.loom
+*.mtx
+*.mtx.gz
+barcodes.tsv*
+features.tsv*
+genes.tsv*
+
+# ── Model checkpoints ───────────────────────────────────────────────────────
+*.pt
+*.pth
+*.ckpt
+*.pkl
+
+# ── Jupyter ─────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── OS / editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ── Logs / tmp ──────────────────────────────────────────────────────────────
+*.log
+*.tmp
