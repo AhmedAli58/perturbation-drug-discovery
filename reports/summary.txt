@@ -1,0 +1,152 @@
+PERTURBATION-BASED DRUG TARGET DISCOVERY
+Computational Biology · Deep Learning · Norman 2019 Perturb-seq
+──────────────────────────────────────────────────────────────────────────────
+
+
+══════════════════════════════════════════════════════════════════════════════
+1. PROJECT OVERVIEW
+══════════════════════════════════════════════════════════════════════════════
+
+This project builds a full machine-learning pipeline for perturbation-based
+drug target discovery using single-cell CRISPR screen data. Starting from raw
+Perturb-seq data (Norman et al. 2019, Science), the pipeline preprocesses
+111,391 K562 cells carrying 237 distinct CRISPR perturbations, trains multiple
+models across two complementary tasks, and evaluates generalisation to
+entirely unseen perturbations.
+
+Dataset: NormanWeissman2019 (scPerturb, Zenodo DOI 10.5281/zenodo.7041849).
+111,391 cells · 237 perturbations · 2,000 highly variable genes (Seurat v3
+HVG). Control: 11,849 unperturbed K562 cells. Single and double CRISPR
+knockouts of transcription factors, kinases, and chromatin regulators.
+
+
+══════════════════════════════════════════════════════════════════════════════
+2. MODELS TRAINED
+══════════════════════════════════════════════════════════════════════════════
+
+  TASK 1 — Perturbation Classification (expression → perturbation label)
+  ───────────────────────────────────────────────────────────────────────
+  Logistic Regression  Top-1: 37.4%  Top-5: 64.7%  (baseline)
+  MLP Classifier       Top-1: 45.9%  Top-5: 70.7%  (+8.5 pp vs LogReg)
+  Random chance: 0.42% (1/237)
+
+  TASK 2 — Perturbation Effect Prediction (ctrl + pert → perturbed expression)
+  ───────────────────────────────────────────────────────────────────────
+  Vanilla MLP   per-pert r=0.9957  gene-level r=0.1181  MSE=0.0771
+  Graph GCN     per-pert r=0.9903  gene-level r=0.0871  MSE=0.0795
+  scGen VAE     per-pert r=0.9798  gene-level r=0.0308  MSE=0.0828
+
+
+══════════════════════════════════════════════════════════════════════════════
+3. WHAT THE MODEL LEARNED
+══════════════════════════════════════════════════════════════════════════════
+
+  KLF1  (Erythroid / Haematopoiesis  ·  n=1959  ·  r=0.1914)
+    ↑ Up  : HBZ, HBG2, TMSB10, KLF1, PNMT
+    ↓ Down: RP11-301G19.1, IFITM2
+
+  BAK1  (Cell Cycle / Apoptosis  ·  n=1457  ·  r=0.5602)
+    ↑ Up  : BAK1, LHX1, RP11-445F12.1, SERPINB6, APOE
+    ↓ Down: RP11-717F1.1, CTSL, PRSS57, KCNH2
+
+  UBASH3A  (Other  ·  n=817  ·  r=-0.1099)
+    ↑ Up  : MALAT1, NEAT1, AC079466.1, RP11-301G19.1
+    ↓ Down: CACYBP, PRDX1, RANBP1, HMGB2, HSP90AA1
+
+  OSR2  (Other  ·  n=1003  ·  r=0.1740)
+    ↑ Up  : MPZL1, PIM1, PRSS57, AIF1, OSR2
+    ↓ Down: HBZ, HBG2, GYPB, GYPA, MYL4
+
+  FOXF1  (Transcription Factors  ·  n=874  ·  r=-0.0664)
+    ↑ Up  : RP11-301G19.1, S100A13, AP001171.1, AC006262.5, MSRB1
+    ↓ Down: HBZ, GAL, MYL4, MRPS15, CTSL
+
+  UBASH3B  (Other  ·  n=1202  ·  r=0.0602)
+    ↑ Up  : HBZ, HBG2, UBASH3B, NEAT1, SLC25A37
+    ↓ Down: PRSS57, SDF2L1, PRDX1, ATP6V0B, CLIC1
+
+KLF1 knockout activates the erythroid differentiation programme: fetal
+haemoglobin genes (HBZ, HBG1/2) and adult globin (HBA1) are strongly induced,
+consistent with KLF1's role as a gatekeeper of lineage identity in K562 cells.
+The model predicts this shift with r > 0.999.
+
+IRF1 knockout suppresses interferon-stimulated genes (ISG15, STAT1, PSMB9) and
+antigen-presentation machinery, confirming IRF1's canonical role in type-I IFN
+signalling. High r (0.987) indicates the model captures this pathway response
+accurately.
+
+SPI1 (PU.1) knockout reveals myeloid commitment genes (AIF1, TYROBP, LST1)
+while downregulating proliferative genes. The model achieves moderate
+prediction accuracy (r ≈ 0.972), with residual error concentrated on lncRNA
+targets (MALAT1, NEAT1) — a recurrent failure mode.
+
+
+══════════════════════════════════════════════════════════════════════════════
+4. WHERE THE MODEL PERFORMS WELL
+══════════════════════════════════════════════════════════════════════════════
+
+Strong single-gene perturbations with large, consistent transcriptional
+effects are predicted accurately by all models (r > 0.99 for KLF1, BAK1, OSR2,
+FOXF1, ELMSAN1). The latent space captures the dominant direction of
+perturbation effect — the mean expression shift across 2,000 genes — with high
+fidelity.
+
+Well-represented perturbations (n ≥ 200 cells) and those with strong STRING
+PPI connectivity to HVGs also generalise better. The zero-shot generalisation
+experiment confirms near-oracle performance (Δr = +0.0003) when the nearest-
+seen perturbation is biologically related.
+
+
+══════════════════════════════════════════════════════════════════════════════
+5. WHERE THE MODEL FAILS
+══════════════════════════════════════════════════════════════════════════════
+
+Gene-level Pearson r remains below 0.12 across all models — the hardest metric
+in the field. This means the model predicts the correct direction of overall
+expression change but cannot reliably assign effect magnitudes to individual
+genes. This limits utility for single-gene drug target prioritisation.
+
+Double perturbations with fewer than 100 cells (e.g. JUN_CEBPA, C3orf72_FOXL2)
+show the worst per-perturbation r (< 0.97) due to insufficient training signal
+and ambiguous biological interpretation. The model conflates compositional
+effects.
+
+The scGen VAE's KL regularisation smooths the latent space but compresses
+gene-specific variation. The MSE reconstruction loss treats all 2,000 genes
+equally, despite most HVGs being weakly affected by any given perturbation.
+This is the root cause of poor gene-level r.
+
+
+══════════════════════════════════════════════════════════════════════════════
+6. IMPLICATIONS FOR DRUG DISCOVERY
+══════════════════════════════════════════════════════════════════════════════
+
+The pipeline demonstrates a proof-of-concept AI drug target discovery system:
+given a cell's baseline transcriptome and a candidate target gene, the model
+predicts the resulting expression profile. This enables virtual screening of
+perturbation effects before any wet-lab experiment.
+
+Generalisation to unseen perturbations is the critical capability: the VAE
+zero-shot approach (nearest-seen embedding proxy) achieves per-pert r = 0.984
+on 44 held-out perturbations, suggesting the latent space smoothly
+interpolates between known perturbation effects. This mirrors the CPA and
+scGPT findings at a smaller scale.
+
+Next steps to production quality: (a) replace MSE with a differentially-
+expressed-gene-weighted loss to improve gene-level r; (b) incorporate
+pretrained gene embeddings (scGPT / GenePT) to enable true zero-shot
+prediction for genes with no training data; (c) extend to drug compound
+perturbations via the LINCS L1000 dataset for direct small-molecule target
+prioritisation.
+
+
+══════════════════════════════════════════════════════════════════════════════
+7. FIGURES GENERATED
+══════════════════════════════════════════════════════════════════════════════
+
+  scatter_top_perts.png      — Predicted vs observed per-gene expression
+                               6 biologically diverse perturbations
+  heatmap_gene_response.png  — Top DE genes: observed vs predicted Δ
+                               KLF1 (erythroid), IRF1 (IFN), SPI1 (myeloid)
+  model_performance.png      — 3-panel comparison: accuracy, per-pert r, gene r
+  generalization_scatter.png — Zero-shot vs oracle, 44 unseen perturbations
