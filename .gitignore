@@ -1,4 +1,4 @@
-# ── Python ─────────────────────────────────────────────────────────────────
+# ── Python ──────────────────────────────────────────────────────────────────
 venv/
 .venv/
 env/
@@ -11,12 +11,12 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.Python
 
-# ── Data & large binaries ───────────────────────────────────────────────────
+# ── Data & large binaries ────────────────────────────────────────────────────
 data/raw/
 data/processed/
 data/models/
-data/results/
 *.h5ad
 *.h5
 *.loom
@@ -26,23 +26,45 @@ barcodes.tsv*
 features.tsv*
 genes.tsv*
 
-# ── Model checkpoints ───────────────────────────────────────────────────────
+# ── Model checkpoints ────────────────────────────────────────────────────────
 *.pt
 *.pth
 *.ckpt
 *.pkl
+*.safetensors
 
-# ── Jupyter ─────────────────────────────────────────────────────────────────
+# ── Results & figures (keep JSON metrics, ignore large binaries) ─────────────
+reports/figures/
+results/
+
+# ── Embeddings (large, reproducible) ────────────────────────────────────────
+data/processed/embeddings_*.npz
+
+# ── Jupyter ──────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb_checkpoints
+notebooks/
 
-# ── OS / editor ─────────────────────────────────────────────────────────────
+# ── OS / editor ──────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 
-# ── Logs / tmp ──────────────────────────────────────────────────────────────
+# ── Logs / tmp ───────────────────────────────────────────────────────────────
 *.log
 *.tmp
+logs/
+wandb/
+mlruns/
+lightning_logs/
+
+# ── Coverage / testing ───────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
