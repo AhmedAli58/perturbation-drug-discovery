@@ -1,0 +1,8 @@
+{
+  "total_edges": 2723,
+  "hvg_hvg_edges": 2460,
+  "min_score": 700,
+  "n_hvg_genes": 2000,
+  "n_pert_target_genes": 105,
+  "n_genes_queried": 2046
+}
