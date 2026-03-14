@@ -101,7 +101,7 @@ perturbation-drug-discovery/
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/perturbation-drug-discovery.git
+git clone https://github.com/AhmedAli58/perturbation-drug-discovery.git
 cd perturbation-drug-discovery
 
 python -m venv .venv

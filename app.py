@@ -26,6 +26,7 @@ ROOT            = Path(__file__).parent
 ADATA_PATH      = ROOT / "data" / "processed" / "norman2019_processed.h5ad"
 RESULTS_DIR     = ROOT / "data" / "results"
 EMBEDDINGS_PATH = ROOT / "data" / "processed" / "embeddings_20k.npz"
+STATS_PATH      = ROOT / "data" / "processed" / "precomputed_stats.npz"
 
 MODEL_KEYS = {"Effect MLP": "effect", "scGen VAE": "scgen", "Graph GCN": "graph"}
 
@@ -260,22 +261,39 @@ def get_gene_expr(_adata, gene):
 
 
 @st.cache_data(show_spinner=False)
-def get_delta(_adata, pert_name, pert_col_name):
-    """Return (mean_ctrl, mean_pert, delta, gene_names).  All numpy arrays."""
-    gene_names = list(_adata.var_names)
-    ctrl_mask  = (_adata.obs[pert_col_name] == "control").values
-    pert_mask  = (_adata.obs[pert_col_name] == pert_name).values
-    if not ctrl_mask.any() or not pert_mask.any():
-        return None, None, None, gene_names
+def load_precomputed_stats():
+    """Load disk-cached perturbation stats. Returns None if file not found.
 
-    def _mean(mask):
-        X = _adata.X[mask]
-        v = np.asarray(X.mean(axis=0) if sp.issparse(X) else X.mean(axis=0))
-        return v.flatten()
+    Run scripts/precompute_stats.py once to generate the file.
+    Returns dict with keys: gene_names, control_mean, perturbation_means,
+    delta, cell_counts — all O(1) to look up by perturbation name.
+    """
+    if not STATS_PATH.exists():
+        return None
+    data       = np.load(str(STATS_PATH), allow_pickle=True)
+    pert_names = list(data["perturbation_names"].astype(str))
+    pm_arr     = data["perturbation_means"]   # (n_perts, n_genes)
+    delta_arr  = data["delta"]                # (n_perts, n_genes)
+    counts_arr = data["cell_counts"]          # (n_perts,)
+    return dict(
+        gene_names         = list(data["gene_names"].astype(str)),
+        control_mean       = data["control_mean"],
+        perturbation_means = {p: pm_arr[i]    for i, p in enumerate(pert_names)},
+        delta              = {p: delta_arr[i] for i, p in enumerate(pert_names)},
+        cell_counts        = {p: int(counts_arr[i]) for i, p in enumerate(pert_names)},
+    )
 
-    mc = _mean(ctrl_mask)
-    mp = _mean(pert_mask)
-    return mc, mp, mp - mc, gene_names
+
+@st.cache_data(show_spinner=False)
+def get_obs_labels(_adata, pc_col):
+    """Cache obs perturbation labels as a plain numpy array (read once)."""
+    return _adata.obs[pc_col].values.copy()
+
+
+@st.cache_data(show_spinner=False)
+def get_all_cell_ids(_adata):
+    """Cache all cell IDs as a string array (indexed by cell position)."""
+    return _adata.obs.index.astype(str).values
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -384,6 +402,45 @@ pc        = _detect_pert_col(adata.obs) if adata is not None else None
 pert_list = sorted(adata.obs[pc].unique().tolist()) if (adata is not None and pc) else ["(no data)"]
 gene_list = list(adata.var_names) if adata is not None else ["(no data)"]
 
+# ── load precomputed stats (O(1) lookup; run scripts/precompute_stats.py once) ──
+precomp: dict | None = load_precomputed_stats()
+if precomp is None and adata is not None and pc is not None:
+    st.warning(
+        "Precomputed stats not found. "
+        "Run `python scripts/precompute_stats.py` for instant interactions. "
+        "Computing in-memory for this session…",
+        icon="⚠️",
+    )
+    # in-memory fallback: compute once per session via st.cache_data
+    @st.cache_data(show_spinner="Computing perturbation statistics (one-time)…")
+    def _build_precomp(_adata, pc_col):
+        import scipy.sparse as _sp
+        obs_col   = _adata.obs[pc_col].values
+        gene_names = list(_adata.var_names)
+        ctrl_mask  = obs_col == "control"
+        def _mf32(mask):
+            X = _adata.X[mask]
+            v = np.asarray(X.mean(axis=0) if _sp.issparse(X) else X.mean(axis=0))
+            return v.flatten().astype(np.float32)
+        ctrl_mean  = _mf32(ctrl_mask)
+        perts      = sorted(p for p in np.unique(obs_col) if p != "control")
+        pm_dict, d_dict, cnt_dict = {}, {}, {}
+        for p in perts:
+            mask = obs_col == p
+            if not mask.any():
+                continue
+            pm = _mf32(mask)
+            pm_dict[p] = pm
+            d_dict[p]  = pm - ctrl_mean
+            cnt_dict[p] = int(mask.sum())
+        return dict(gene_names=gene_names, control_mean=ctrl_mean,
+                    perturbation_means=pm_dict, delta=d_dict, cell_counts=cnt_dict)
+    precomp = _build_precomp(adata, pc)
+
+# ── cache obs labels + cell IDs (avoid re-reading AnnData on every render) ──
+obs_labels  = get_obs_labels(adata, pc) if (adata is not None and pc) else None
+all_cell_ids = get_all_cell_ids(adata)  if adata is not None else None
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  TOP CONTROL BAR
 # ══════════════════════════════════════════════════════════════════════════════
@@ -487,7 +544,7 @@ with main_col:
             expr_all   = get_gene_expr(adata, sel_gene)
             expr_hover = (expr_all[s_idx] if expr_all is not None
                           else np.zeros(len(s_idx)))
-            cell_ids   = adata.obs.iloc[s_idx].index.astype(str).values
+            cell_ids   = all_cell_ids[s_idx]
             custom     = np.stack(
                 [cell_ids, embed_perts, expr_hover.round(3)], axis=1
             )
@@ -713,7 +770,7 @@ with right_col:
         if expr_full_a is None:
             st.warning(f"Gene `{sel_gene}` not found in dataset.")
         else:
-            labels_a = adata.obs[pc].values
+            labels_a = obs_labels
             rng_a    = np.random.default_rng(42)
 
             # 3 groups: selected pert / control / all others pooled
@@ -795,7 +852,14 @@ with right_col:
     )
 
     if adata is not None and pc is not None:
-        mc_b, mp_b, delta_b, gnames_b = get_delta(adata, sel_pert, pc)
+        if precomp and sel_pert in precomp["delta"]:
+            mc_b    = precomp["control_mean"]
+            mp_b    = precomp["perturbation_means"][sel_pert]
+            delta_b = precomp["delta"][sel_pert]
+            gnames_b = precomp["gene_names"]
+        else:
+            mc_b = mp_b = delta_b = None
+            gnames_b = list(adata.var_names)
 
         if delta_b is None:
             st.warning(f"No perturbation data for `{sel_pert}`.")
@@ -838,7 +902,7 @@ with right_col:
             if r_b is not None:
                 title_b += f"  ·  model r = {r_b:.4f}"
 
-            n_cells_b = int((adata.obs[pc] == sel_pert).sum())
+            n_cells_b = precomp["cell_counts"].get(sel_pert, 0) if precomp else 0
 
             fig_b.update_layout(
                 **_PL,
@@ -878,7 +942,13 @@ with right_col:
     )
 
     if adata is not None and pc is not None:
-        mc_c, mp_c, delta_c, gnames_c = get_delta(adata, sel_pert, pc)
+        if precomp and sel_pert in precomp["delta"]:
+            mc_c    = precomp["control_mean"]
+            mp_c    = precomp["perturbation_means"][sel_pert]
+            delta_c = precomp["delta"][sel_pert]
+            gnames_c = precomp["gene_names"]
+        else:
+            mc_c = mp_c = delta_c = gnames_c = None
 
         if mc_c is None:
             st.warning(f"No expression data for `{sel_pert}`.")
