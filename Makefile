@@ -1,4 +1,4 @@
-.PHONY: install data preprocess train dashboard test
+.PHONY: install data preprocess train test
 
 install:
 	pip install -r requirements.txt
@@ -17,9 +17,6 @@ train:
 	python src/models/train_graph_perturbation_model.py
 	python src/models/train_scgen_style_model.py
 	python src/experiments/unseen_perturbation_generalization.py
-
-dashboard:
-	streamlit run app.py
 
 test:
 	pytest tests/ -v
