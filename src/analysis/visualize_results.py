@@ -50,7 +50,10 @@ PALETTE = ["#4C72B0", "#DD8452", "#55A868", "#C44E52",
 # Helpers
 # ════════════════════════════════════════════════════════════════════════════
 def load_json(name: str) -> dict:
-    return json.loads((RES / name).read_text())
+    p = RES / name
+    if not p.exists():
+        raise FileNotFoundError(f"Results file not found: {p}. Run the relevant training script first.")
+    return json.loads(p.read_text())
 
 
 class ScGenVAE(nn.Module):
@@ -82,8 +85,15 @@ class ScGenVAE(nn.Module):
 # ════════════════════════════════════════════════════════════════════════════
 # Load shared data (used by plots 1 and 3)
 # ════════════════════════════════════════════════════════════════════════════
+_adata_path = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
+_model_path = MODS / "scgen_model.pt"
+if not _adata_path.exists():
+    raise FileNotFoundError(f"Processed dataset not found at {_adata_path}. Run: make preprocess")
+if not _model_path.exists():
+    raise FileNotFoundError(f"scGen model not found at {_model_path}. Run: make train_scgen")
+
 print("Loading AnnData …")
-adata = sc.read_h5ad(PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad")
+adata = sc.read_h5ad(_adata_path)
 X_all = adata.X
 if sp.issparse(X_all):
     X_all = X_all.toarray()
@@ -93,7 +103,7 @@ perts_col = adata.obs["perturbation"].astype(str).values
 n_genes   = adata.n_vars
 
 print("Loading scGen VAE …")
-ck = torch.load(MODS / "scgen_model.pt", map_location="cpu", weights_only=False)
+ck = torch.load(_model_path, map_location="cpu", weights_only=False)
 model = ScGenVAE(
     n_genes=ck["n_genes"], n_perts=ck["n_classes"],
     latent_dim=ck["latent_dim"], pert_emb_dim=ck["pert_emb_dim"],

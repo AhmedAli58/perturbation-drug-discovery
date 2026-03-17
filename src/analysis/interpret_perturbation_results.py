@@ -154,8 +154,19 @@ def annotate_pert(pert: str) -> str:
 # ════════════════════════════════════════════════════════════════════════════
 # 1. Load data and models
 # ════════════════════════════════════════════════════════════════════════════
+_adata_path = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
+_vae_path   = MODS / "scgen_model.pt"
+_mlp_path   = MODS / "perturbation_effect_model.pt"
+for _p, _hint in [
+    (_adata_path, "make preprocess"),
+    (_vae_path,   "make train_scgen"),
+    (_mlp_path,   "make train_effect"),
+]:
+    if not _p.exists():
+        raise FileNotFoundError(f"{_p} not found. Run: {_hint}")
+
 print("Loading AnnData …")
-adata = sc.read_h5ad(PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad")
+adata = sc.read_h5ad(_adata_path)
 X_all = adata.X
 if sp.issparse(X_all):
     X_all = X_all.toarray()
@@ -169,7 +180,7 @@ ctrl_mask  = perts_col == "control"
 mean_ctrl  = X_all[ctrl_mask].mean(axis=0)
 
 print("Loading scGen VAE …")
-ck_vae = torch.load(MODS / "scgen_model.pt", map_location="cpu", weights_only=False)
+ck_vae = torch.load(_vae_path, map_location="cpu", weights_only=False)
 vae = ScGenVAE(
     n_genes=ck_vae["n_genes"], n_perts=ck_vae["n_classes"],
     latent_dim=ck_vae["latent_dim"], pert_emb_dim=ck_vae["pert_emb_dim"],
@@ -182,7 +193,7 @@ classes     = ck_vae["classes"]
 pert_to_idx = {p: i for i, p in enumerate(classes)}
 
 print("Loading MLP effect model …")
-ck_mlp = torch.load(MODS / "perturbation_effect_model.pt", map_location="cpu", weights_only=False)
+ck_mlp = torch.load(_mlp_path, map_location="cpu", weights_only=False)
 mlp = PerturbationEffectMLP(
     n_genes=ck_mlp["n_genes"], n_perts=ck_mlp["n_classes"],
     embed_dim=ck_mlp["embed_dim"], hidden=ck_mlp["hidden1"],
