@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.constants import SEED  # noqa: E402
+
 PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
 RESULTS_DIR    = PROJECT_ROOT / "data" / "results"
 MODELS_DIR     = PROJECT_ROOT / "data" / "models"
@@ -51,13 +53,18 @@ BATCH_SIZE = 512
 EPOCHS     = 20
 DROPOUT    = 0.3
 HIDDEN     = [512, 256]
-SEED       = 42
 
 torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+np.random.seed(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info("Device: %s", DEVICE)
 
 # ── 1. Load dataset ────────────────────────────────────────────────────────
+if not PROCESSED_PATH.exists():
+    raise FileNotFoundError(
+        f"Processed dataset not found at {PROCESSED_PATH}. Run: make preprocess"
+    )
 logger.info("Loading %s …", PROCESSED_PATH)
 adata = sc.read_h5ad(PROCESSED_PATH)
 logger.info("AnnData: %d cells × %d genes", adata.n_obs, adata.n_vars)
@@ -87,19 +94,24 @@ else:
 n_features  = X_raw.shape[1]
 n_classes   = len(classes)
 
-# ── 4. Train / test masks ──────────────────────────────────────────────────
+# ── 4. Train / val / test masks ────────────────────────────────────────────
 train_mask = (split_col == "train").values
+val_mask   = (split_col == "val").values
 test_mask  = (split_col == "test").values
 
 X_train, y_train = X_raw[train_mask], y_all[train_mask]
+X_val,   y_val   = X_raw[val_mask],   y_all[val_mask]
 X_test,  y_test  = X_raw[test_mask],  y_all[test_mask]
-logger.info("Train: %d  Test: %d", len(y_train), len(y_test))
+logger.info("Train: %d  Val: %d  Test: %d", len(y_train), len(y_val), len(y_test))
 
 # ── PyTorch tensors & DataLoaders ──────────────────────────────────────────
 train_ds = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
+val_ds   = TensorDataset(torch.from_numpy(X_val),   torch.from_numpy(y_val))
 test_ds  = TensorDataset(torch.from_numpy(X_test),  torch.from_numpy(y_test))
 
 train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
+                          num_workers=0, pin_memory=(DEVICE.type == "cuda"))
+val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False,
                           num_workers=0, pin_memory=(DEVICE.type == "cuda"))
 test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False,
                           num_workers=0, pin_memory=(DEVICE.type == "cuda"))
@@ -146,8 +158,8 @@ def evaluate(loader: DataLoader) -> tuple[float, float]:
 
 
 history: list[dict] = []
-print(f"\n{'Epoch':>5}  {'Train Loss':>10}  {'Train Top1':>10}  {'Test Top1':>9}  {'Test Top5':>9}  {'Time':>6}")
-print("─" * 62)
+print(f"\n{'Epoch':>5}  {'Train Loss':>10}  {'Train Top1':>10}  {'Val Top1':>8}  {'Val Top5':>8}  {'Time':>6}")
+print("─" * 60)
 
 for epoch in range(1, EPOCHS + 1):
     model.train()
@@ -164,18 +176,18 @@ for epoch in range(1, EPOCHS + 1):
 
     avg_loss = total_loss / len(y_train)
     train_top1, train_top5 = evaluate(train_loader)
-    test_top1,  test_top5  = evaluate(test_loader)
+    val_top1,   val_top5   = evaluate(val_loader)   # val only — test stays held-out
     elapsed = time() - t0
 
     print(f"{epoch:>5}  {avg_loss:>10.4f}  {train_top1:>10.4f}  "
-          f"{test_top1:>9.4f}  {test_top5:>9.4f}  {elapsed:>5.1f}s")
+          f"{val_top1:>8.4f}  {val_top5:>8.4f}  {elapsed:>5.1f}s")
 
     history.append({
-        "epoch": epoch,
-        "train_loss": round(avg_loss, 6),
-        "train_top1": round(train_top1, 6),
-        "test_top1":  round(test_top1,  6),
-        "test_top5":  round(test_top5,  6),
+        "epoch":      epoch,
+        "train_loss": round(avg_loss,    6),
+        "train_top1": round(train_top1,  6),
+        "val_top1":   round(val_top1,    6),
+        "val_top5":   round(val_top5,    6),
     })
 
 # ── 8. Final evaluation — per-class accuracy ──────────────────────────────
@@ -226,6 +238,7 @@ metrics = {
     },
     "n_perturbations": n_classes,
     "train_cells": int(train_mask.sum()),
+    "val_cells":   int(val_mask.sum()),
     "test_cells":  int(test_mask.sum()),
     "accuracy":              round(final_top1, 6),
     "top5_accuracy":         round(final_top5, 6),

@@ -69,16 +69,21 @@ BATCH_SIZE   = 256
 EPOCHS       = 40
 KL_ANNEAL    = 10          # epochs over which β goes 0 → KL_MAX
 KL_MAX       = 1e-4        # final β weight (keeps KL from dominating)
-CONTROL_LABEL = "control"
-SEED          = 42
+from src.constants import SEED, CONTROL_LABEL  # noqa: E402
 
 torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+np.random.seed(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info("Device: %s", DEVICE)
 
 # ══════════════════════════════════════════════════════════════════════════
 # 1. Load dataset
 # ══════════════════════════════════════════════════════════════════════════
+if not PROCESSED_PATH.exists():
+    raise FileNotFoundError(
+        f"Processed dataset not found at {PROCESSED_PATH}. Run: make preprocess"
+    )
 logger.info("Loading AnnData …")
 adata = sc.read_h5ad(PROCESSED_PATH)
 logger.info("AnnData: %d cells × %d genes", adata.n_obs, adata.n_vars)
@@ -112,11 +117,13 @@ y_all = np.array([pert_to_idx[p] for p in perts_col], dtype=np.int64)
 # 3. Train / test splits  (all cells, including control)
 # ══════════════════════════════════════════════════════════════════════════
 train_mask = split_col == "train"
+val_mask   = split_col == "val"
 test_mask  = split_col == "test"
 
 X_train, y_train = X_all[train_mask], y_all[train_mask]
+X_val,   y_val   = X_all[val_mask],   y_all[val_mask]
 X_test,  y_test  = X_all[test_mask],  y_all[test_mask]
-logger.info("Train: %d  Test: %d", len(y_train), len(y_test))
+logger.info("Train: %d  Val: %d  Test: %d", len(y_train), len(y_val), len(y_test))
 
 # Reference state: mean of control cells (used at inference)
 ctrl_mask = perts_col == CONTROL_LABEL
@@ -126,11 +133,15 @@ logger.info("Control cells: %d", int(ctrl_mask.sum()))
 
 train_ds = TensorDataset(
     torch.from_numpy(X_train), torch.from_numpy(y_train))
+val_ds   = TensorDataset(
+    torch.from_numpy(X_val),   torch.from_numpy(y_val))
 test_ds  = TensorDataset(
     torch.from_numpy(X_test),  torch.from_numpy(y_test))
 
 train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE,
                           shuffle=True,  num_workers=0)
+val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE,
+                          shuffle=False, num_workers=0)
 test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE,
                           shuffle=False, num_workers=0)
 
@@ -256,7 +267,7 @@ def eval_loss(loader: DataLoader, beta: float) -> tuple[float, float, float]:
 
 history: list[dict] = []
 header = (f"{'Ep':>3}  {'β':>7}  {'Tr-MSE':>8}  {'Tr-KL':>8}  "
-          f"{'Te-MSE':>8}  {'Te-KL':>8}  {'Time':>5}")
+          f"{'Va-MSE':>8}  {'Va-KL':>8}  {'Time':>5}")
 print(f"\n{header}")
 print("─" * len(header))
 
@@ -279,15 +290,15 @@ for epoch in range(1, EPOCHS + 1):
 
     tr_mse = tot_recon / tot_n
     tr_kl  = tot_kl    / tot_n
-    _, te_mse, te_kl = eval_loss(test_loader, beta)
+    _, va_mse, va_kl = eval_loss(val_loader, beta)   # val only — test stays held-out
     elapsed = time() - t0
 
     print(f"{epoch:>3}  {beta:>7.1e}  {tr_mse:>8.4f}  {tr_kl:>8.2f}  "
-          f"{te_mse:>8.4f}  {te_kl:>8.2f}  {elapsed:>4.1f}s")
+          f"{va_mse:>8.4f}  {va_kl:>8.2f}  {elapsed:>4.1f}s")
     history.append({
         "epoch": epoch, "beta": beta,
         "train_mse": round(tr_mse, 6), "train_kl": round(tr_kl, 4),
-        "test_mse":  round(te_mse, 6), "test_kl":  round(te_kl, 4),
+        "val_mse":   round(va_mse, 6), "val_kl":   round(va_kl, 4),
     })
 
 # ══════════════════════════════════════════════════════════════════════════

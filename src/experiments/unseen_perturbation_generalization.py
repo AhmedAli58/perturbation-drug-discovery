@@ -49,10 +49,11 @@ MODEL_PATH     = PROJECT_ROOT / "data" / "models"   / "scgen_model.pt"
 STRING_PATH    = PROJECT_ROOT / "data" / "external"  / "string_ppi_edges.tsv"
 OUT_PATH       = PROJECT_ROOT / "data" / "results"   / "unseen_perturbation_metrics.json"
 
-CONTROL_LABEL = "control"
+from src.constants import SEED, CONTROL_LABEL  # noqa: E402
+
 MIN_CELLS     = 100
 UNSEEN_FRAC   = 0.20
-SEED          = 42
+np.random.seed(SEED)
 rng = np.random.default_rng(SEED)
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -86,6 +87,14 @@ class ScGenVAE(nn.Module):
 # ══════════════════════════════════════════════════════════════════════════
 # 2. Load model checkpoint
 # ══════════════════════════════════════════════════════════════════════════
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(
+        f"scGen model not found at {MODEL_PATH}. Run: make train_scgen"
+    )
+if not PROCESSED_PATH.exists():
+    raise FileNotFoundError(
+        f"Processed dataset not found at {PROCESSED_PATH}. Run: make preprocess"
+    )
 logger.info("Loading checkpoint from %s …", MODEL_PATH)
 ck = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
 

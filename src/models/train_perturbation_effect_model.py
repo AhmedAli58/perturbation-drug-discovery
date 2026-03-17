@@ -54,21 +54,27 @@ METRICS_PATH = RESULTS_DIR / "perturbation_effect_metrics.json"
 MODEL_PATH   = MODELS_DIR  / "perturbation_effect_model.pt"
 
 # ── Hyperparameters ────────────────────────────────────────────────────────
-CONTROL_LABEL  = "control"
-EMBED_DIM      = 64
-HIDDEN1        = 512
-LR             = 1e-3
-BATCH_SIZE     = 256
-EPOCHS         = 30
-DROPOUT        = 0.3
-SEED           = 42
+from src.constants import SEED, CONTROL_LABEL  # noqa: E402
+
+EMBED_DIM  = 64
+HIDDEN1    = 512
+LR         = 1e-3
+BATCH_SIZE = 256
+EPOCHS     = 30
+DROPOUT    = 0.3
 
 torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+np.random.seed(SEED)
 rng = np.random.default_rng(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info("Device: %s", DEVICE)
 
 # ── 1. Load dataset ────────────────────────────────────────────────────────
+if not PROCESSED_PATH.exists():
+    raise FileNotFoundError(
+        f"Processed dataset not found at {PROCESSED_PATH}. Run: make preprocess"
+    )
 logger.info("Loading %s …", PROCESSED_PATH)
 adata = sc.read_h5ad(PROCESSED_PATH)
 logger.info("AnnData: %d cells × %d genes", adata.n_obs, adata.n_vars)
@@ -101,18 +107,22 @@ mean_ctrl  = X_ctrl.mean(axis=0)          # (n_genes,) — reference state
 
 logger.info("Control cells: %d  |  mean_ctrl shape: %s", n_ctrl, mean_ctrl.shape)
 
-# ── 3. Build training / test indices for perturbed cells ───────────────────
+# ── 3. Build training / val / test indices for perturbed cells ─────────────
 train_pert_mask = (~ctrl_mask) & (split_col == "train")
+val_pert_mask   = (~ctrl_mask) & (split_col == "val")
 test_pert_mask  = (~ctrl_mask) & (split_col == "test")
 
-X_train_pert = X_all[train_pert_mask]        # target expressions
+X_train_pert = X_all[train_pert_mask]
 y_train_pert = np.array([pert_to_idx[p] for p in perts[train_pert_mask]], dtype=np.int64)
+
+X_val_pert   = X_all[val_pert_mask]
+y_val_pert   = np.array([pert_to_idx[p] for p in perts[val_pert_mask]],   dtype=np.int64)
 
 X_test_pert  = X_all[test_pert_mask]
 y_test_pert  = np.array([pert_to_idx[p] for p in perts[test_pert_mask]],  dtype=np.int64)
 
-logger.info("Train perturbed cells: %d  |  Test: %d",
-            len(y_train_pert), len(y_test_pert))
+logger.info("Train: %d  Val: %d  Test: %d",
+            len(y_train_pert), len(y_val_pert), len(y_test_pert))
 
 # ── Custom Dataset: samples a random control cell as input per step ─────────
 class PerturbationPairDataset(Dataset):
@@ -136,9 +146,11 @@ class PerturbationPairDataset(Dataset):
 
 
 train_ds = PerturbationPairDataset(X_ctrl, X_train_pert, y_train_pert)
+val_ds   = PerturbationPairDataset(X_ctrl, X_val_pert,   y_val_pert)
 test_ds  = PerturbationPairDataset(X_ctrl, X_test_pert,  y_test_pert)
 
 train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
+val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
 # ── 4. Model architecture ──────────────────────────────────────────────────
@@ -195,8 +207,8 @@ def eval_mse(loader: DataLoader) -> float:
 
 
 history: list[dict] = []
-print(f"\n{'Epoch':>5}  {'Train MSE':>10}  {'Test MSE':>9}  {'Time':>6}")
-print("─" * 36)
+print(f"\n{'Epoch':>5}  {'Train MSE':>10}  {'Val MSE':>8}  {'Time':>6}")
+print("─" * 34)
 
 for epoch in range(1, EPOCHS + 1):
     model.train()
@@ -213,13 +225,13 @@ for epoch in range(1, EPOCHS + 1):
         running_loss += loss.item() * target.size(0)
 
     train_mse = running_loss / len(y_train_pert)
-    test_mse  = eval_mse(test_loader)
+    val_mse   = eval_mse(val_loader)   # val only — test stays held-out until final eval
     elapsed   = time() - t0
 
-    print(f"{epoch:>5}  {train_mse:>10.4f}  {test_mse:>9.4f}  {elapsed:>5.1f}s")
-    history.append({"epoch": epoch,
+    print(f"{epoch:>5}  {train_mse:>10.4f}  {val_mse:>8.4f}  {elapsed:>5.1f}s")
+    history.append({"epoch":     epoch,
                     "train_mse": round(train_mse, 6),
-                    "test_mse":  round(test_mse,  6)})
+                    "val_mse":   round(val_mse,   6)})
 
 # ── 6. Evaluation — per-cell and per-gene Pearson correlation ───────────────
 logger.info("Computing Pearson correlations …")
@@ -228,8 +240,7 @@ model.eval()
 # Use mean_ctrl as a fixed reference for evaluation (deterministic)
 mean_ctrl_t = torch.from_numpy(mean_ctrl).unsqueeze(0).to(DEVICE)   # (1, 2000)
 
-all_pred   = []
-all_target = []
+all_pred, all_target = [], []
 
 with torch.no_grad():
     for ctrl, pert_idx, target in test_loader:
@@ -247,6 +258,10 @@ cell_cors = np.array([
     pearsonr(pred_arr[i], target_arr[i])[0]
     for i in range(len(pred_arr))
 ])
+n_nan_cells = int(np.isnan(cell_cors).sum())
+if n_nan_cells:
+    logger.warning("%d / %d cells had zero-variance predictions (NaN r, excluded from mean)",
+                   n_nan_cells, len(cell_cors))
 mean_cell_cor = float(np.nanmean(cell_cors))
 
 # Per-gene Pearson: correlation across cells for each gene
@@ -259,8 +274,6 @@ mean_gene_cor = float(np.nanmean(gene_cors))
 # Per-perturbation MSE & correlation (aggregate eval)
 pert_eval: dict[str, dict] = {}
 unique_test_perts = np.unique(y_test_pert)
-mean_ctrl_t_cpu   = mean_ctrl_t.cpu()
-
 with torch.no_grad():
     for pidx in unique_test_perts:
         pert_name = classes[pidx]

@@ -78,7 +78,7 @@ def _query_string(genes: list[str]) -> list[tuple[str, str, int]]:
     Returns list of (geneA, geneB, combined_score).
     """
     params = {
-        "identifiers":     "%0d".join(genes),   # \r separator
+        "identifiers":     "%0a".join(genes),   # \n separator
         "species":         SPECIES,
         "required_score":  str(MIN_SCORE),
         "caller_identity": "perturbation_drug_discovery",

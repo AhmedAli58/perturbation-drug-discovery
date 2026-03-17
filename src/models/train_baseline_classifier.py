@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.constants import SEED  # noqa: E402
+
 PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
 RESULTS_DIR    = PROJECT_ROOT / "data" / "results"
 MODELS_DIR     = PROJECT_ROOT / "data" / "models"
@@ -40,6 +42,11 @@ MODEL_PATH   = MODELS_DIR  / "baseline_logreg.pkl"
 # ---------------------------------------------------------------------------
 # 2. Load dataset
 # ---------------------------------------------------------------------------
+if not PROCESSED_PATH.exists():
+    raise FileNotFoundError(
+        f"Processed dataset not found at {PROCESSED_PATH}. "
+        "Run: make preprocess"
+    )
 logger.info("Loading %s …", PROCESSED_PATH)
 adata = sc.read_h5ad(PROCESSED_PATH)
 logger.info("AnnData: %d cells × %d genes", adata.n_obs, adata.n_vars)
@@ -89,9 +96,9 @@ logger.info("Split — train: %d  test: %d", n_train, n_test)
 # ---------------------------------------------------------------------------
 logger.info("Training LogisticRegression (multinomial, max_iter=200) …")
 clf = LogisticRegression(
-    solver="lbfgs",        # natively multinomial for >2 classes in sklearn >= 1.5
-    max_iter=1000,         # 200 is insufficient for 237-class problem
-    random_state=42,
+    solver="lbfgs",
+    max_iter=1000,
+    random_state=SEED,
     verbose=1,
 )
 clf.fit(X_train, y_train)

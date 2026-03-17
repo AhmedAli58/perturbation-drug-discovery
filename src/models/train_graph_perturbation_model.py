@@ -69,8 +69,9 @@ METRICS_PATH = RESULTS_DIR / "graph_model_metrics.json"
 MODEL_PATH   = MODELS_DIR  / "graph_perturbation_model.pt"
 PREV_METRICS = RESULTS_DIR / "perturbation_effect_metrics.json"
 
+from src.constants import SEED, CONTROL_LABEL  # noqa: E402
+
 # ── Hyperparameters ────────────────────────────────────────────────────────
-CONTROL_LABEL = "control"
 GENE_EMB_DIM  = 64
 GCN_HIDDEN    = 128
 GCN_OUT       = 64
@@ -79,9 +80,10 @@ LR            = 1e-3
 BATCH_SIZE    = 256
 EPOCHS        = 40
 DROPOUT       = 0.3
-SEED          = 42
 
 torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+np.random.seed(SEED)
 rng    = np.random.default_rng(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info("Device: %s", DEVICE)
@@ -89,6 +91,14 @@ logger.info("Device: %s", DEVICE)
 # ══════════════════════════════════════════════════════════════════════════
 # 1. Load dataset
 # ══════════════════════════════════════════════════════════════════════════
+if not PROCESSED_PATH.exists():
+    raise FileNotFoundError(
+        f"Processed dataset not found at {PROCESSED_PATH}. Run: make preprocess"
+    )
+if not STRING_PATH.exists():
+    raise FileNotFoundError(
+        f"STRING PPI file not found at {STRING_PATH}. Run: make data"
+    )
 logger.info("Loading AnnData …")
 adata = sc.read_h5ad(PROCESSED_PATH)
 logger.info("AnnData: %d cells × %d genes", adata.n_obs, adata.n_vars)
@@ -209,15 +219,20 @@ pert_neighbor_mask = pert_neighbor_mask.to(DEVICE)   # (n_perts, n_genes)
 # 5. Datasets & DataLoaders
 # ══════════════════════════════════════════════════════════════════════════
 train_pert_mask = (~ctrl_mask) & (split_col == "train")
+val_pert_mask   = (~ctrl_mask) & (split_col == "val")
 test_pert_mask  = (~ctrl_mask) & (split_col == "test")
 
 X_train_pert = X_all[train_pert_mask]
 y_train_pert = np.array([pert_to_idx[p] for p in perts[train_pert_mask]], dtype=np.int64)
 
+X_val_pert   = X_all[val_pert_mask]
+y_val_pert   = np.array([pert_to_idx[p] for p in perts[val_pert_mask]],   dtype=np.int64)
+
 X_test_pert  = X_all[test_pert_mask]
 y_test_pert  = np.array([pert_to_idx[p] for p in perts[test_pert_mask]],  dtype=np.int64)
 
-logger.info("Train: %d  Test: %d perturbed cells", len(y_train_pert), len(y_test_pert))
+logger.info("Train: %d  Val: %d  Test: %d perturbed cells",
+            len(y_train_pert), len(y_val_pert), len(y_test_pert))
 
 
 class PerturbationPairDataset(Dataset):
@@ -236,8 +251,10 @@ class PerturbationPairDataset(Dataset):
 
 
 train_ds = PerturbationPairDataset(X_ctrl, X_train_pert, y_train_pert)
+val_ds   = PerturbationPairDataset(X_ctrl, X_val_pert,   y_val_pert)
 test_ds  = PerturbationPairDataset(X_ctrl, X_test_pert,  y_test_pert)
 train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
+val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -353,8 +370,8 @@ def eval_mse(loader: DataLoader) -> float:
 
 
 history: list[dict] = []
-print(f"\n{'Epoch':>5}  {'Train MSE':>10}  {'Test MSE':>9}  {'Time':>6}")
-print("─" * 38)
+print(f"\n{'Epoch':>5}  {'Train MSE':>10}  {'Val MSE':>8}  {'Time':>6}")
+print("─" * 36)
 
 for epoch in range(1, EPOCHS + 1):
     model.train()
@@ -371,13 +388,13 @@ for epoch in range(1, EPOCHS + 1):
         running += loss.item() * tgt.size(0)
 
     train_mse = running / len(y_train_pert)
-    test_mse  = eval_mse(test_loader)
+    val_mse   = eval_mse(val_loader)   # val only — test stays held-out until final eval
     elapsed   = time() - t0
 
-    print(f"{epoch:>5}  {train_mse:>10.4f}  {test_mse:>9.4f}  {elapsed:>5.1f}s")
+    print(f"{epoch:>5}  {train_mse:>10.4f}  {val_mse:>8.4f}  {elapsed:>5.1f}s")
     history.append({"epoch": epoch,
                     "train_mse": round(train_mse, 6),
-                    "test_mse":  round(test_mse,  6)})
+                    "val_mse":   round(val_mse,   6)})
 
 # ══════════════════════════════════════════════════════════════════════════
 # 8. Evaluation — MSE, cell-level r, gene-level r, per-perturbation r
