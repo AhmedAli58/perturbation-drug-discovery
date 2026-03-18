@@ -37,14 +37,16 @@ MODS = PROJECT_ROOT / "data" / "models"
 
 # ── Shared style ────────────────────────────────────────────────────────────
 plt.rcParams.update({
-    "font.family":     "sans-serif",
-    "font.size":       11,
+    "font.family":        "sans-serif",
+    "font.size":          11,
     "axes.spines.top":    False,
     "axes.spines.right":  False,
-    "figure.dpi":      150,
+    "figure.dpi":         150,
+    "savefig.dpi":        300,
+    "savefig.bbox":       "tight",
 })
-PALETTE = ["#4C72B0", "#DD8452", "#55A868", "#C44E52",
-           "#8172B3", "#937860", "#DA8BC3"]
+PALETTE = ["#2166AC", "#D6604D", "#4DAC26", "#8073AC",
+           "#E08214", "#018571", "#A6611A", "#80CDC1"]
 
 # ════════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -124,11 +126,11 @@ with torch.no_grad():
     z_ctrl, _ = model.encode(mean_ctrl_t)      # (1, 128) — fixed reference
 
 # ════════════════════════════════════════════════════════════════════════════
-# PLOT 1 — Predicted vs Actual mean gene expression
+# PLOT 1 — Predicted vs Actual mean gene expression (2×3 panel)
 # ════════════════════════════════════════════════════════════════════════════
 print("Generating Plot 1: pred_vs_real …")
 
-# Pick 6 perturbations spanning a range of per-pert r values
+# Pick 6 perturbations spanning the full range of per-pert r values
 scgen_m = load_json("scgen_metrics.json")
 pert_r  = {
     p: v["pearson_r"]
@@ -142,11 +144,13 @@ selected = [
     for f in [0.02, 0.18, 0.35, 0.55, 0.75, 0.97]
 ]
 
-fig, ax = plt.subplots(figsize=(6, 5.5))
+fig, axes = plt.subplots(2, 3, figsize=(13, 8.5),
+                          sharex=False, sharey=False)
+axes = axes.flatten()
 
-for i, pert in enumerate(selected):
+for i, (pert, ax) in enumerate(zip(selected, axes)):
     mask     = perts_col == pert
-    mean_obs = X_all[mask].mean(axis=0)          # (2000,)
+    mean_obs = X_all[mask].mean(axis=0)          # all 2000 genes
 
     pidx = torch.tensor([pert_to_idx[pert]], dtype=torch.long)
     with torch.no_grad():
@@ -154,33 +158,33 @@ for i, pert in enumerate(selected):
 
     r, _ = pearsonr(mean_pred, mean_obs)
 
-    # Sub-sample genes for speed (plot 500 random genes)
-    rng  = np.random.default_rng(42 + i)
-    idx  = rng.choice(n_genes, size=500, replace=False)
-
     ax.scatter(
-        mean_obs[idx], mean_pred[idx],
-        s=8, alpha=0.45, color=PALETTE[i],
-        label=f"{pert}  (r={r:.3f})",
-        linewidths=0,
+        mean_obs, mean_pred,
+        s=10, alpha=0.5, color=PALETTE[i],
+        linewidths=0, rasterized=True,
     )
 
-# Identity line
-lims = [
-    min(ax.get_xlim()[0], ax.get_ylim()[0]),
-    max(ax.get_xlim()[1], ax.get_ylim()[1]),
-]
-ax.plot(lims, lims, "k--", lw=1, alpha=0.5, zorder=0)
+    # Identity line
+    lo = min(mean_obs.min(), mean_pred.min()) - 0.05
+    hi = max(mean_obs.max(), mean_pred.max()) + 0.05
+    ax.plot([lo, hi], [lo, hi], "k--", lw=1, alpha=0.55, zorder=0)
 
-ax.set_xlabel("Observed mean expression", fontsize=12)
-ax.set_ylabel("Predicted mean expression (scGen VAE)", fontsize=12)
-ax.set_title("Predicted vs Actual Gene Expression\n(6 perturbations, 500 genes each)", fontsize=13)
-ax.legend(fontsize=8, framealpha=0.7, loc="upper left",
-          title="Perturbation", title_fontsize=8)
+    ax.set_title(f"{pert}\n$r$ = {r:.4f}", fontsize=10.5, fontweight="bold")
+    ax.set_xlabel("Observed mean expression", fontsize=9.5)
+    ax.set_ylabel("Predicted mean expression", fontsize=9.5)
+    ax.tick_params(labelsize=8.5)
+    ax.annotate(f"n = {int(mask.sum())} cells\n2 000 genes",
+                xy=(0.97, 0.04), xycoords="axes fraction",
+                ha="right", va="bottom", fontsize=8, color="#555")
 
+fig.suptitle(
+    "scGen VAE — Predicted vs Observed Mean Gene Expression\n"
+    "Six held-out perturbations spanning the full performance range",
+    fontsize=13, y=1.01,
+)
 plt.tight_layout()
 out1 = FIG_DIR / "pred_vs_real.png"
-fig.savefig(out1, bbox_inches="tight")
+fig.savefig(out1)
 plt.close(fig)
 print(f"  Saved → {out1}")
 
