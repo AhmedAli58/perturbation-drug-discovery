@@ -1,105 +1,209 @@
+<div align="center">
+
 # Perturbation-Based Drug Target Discovery
 
-Deep learning pipeline for predicting how CRISPR gene knockouts reshape cell-wide gene expression. Built on the Norman 2019 Perturb-seq dataset — 111k single cells, 237 perturbations, K562 leukemia cell line.
+**Predicting genome-wide transcriptional responses to CRISPR knockouts with deep learning**
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Scanpy](https://img.shields.io/badge/Scanpy-1.9+-blueviolet)](https://scanpy.readthedocs.io/)
+[![AnnData](https://img.shields.io/badge/AnnData-0.9+-blue)](https://anndata.readthedocs.io/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3+-F7931E?logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+*111,391 cells · 2,000 highly variable genes · 237 CRISPR perturbations · K562 cell line*
+
+</div>
 
 ---
 
 ## The Problem
 
-Wet-lab CRISPR screens are expensive and slow — testing every candidate gene as a drug target is not feasible at scale. If you could accurately simulate what a perturbation does to a cell's expression profile, you could screen thousands of knockouts computationally before committing to a single experiment.
+Wet-lab CRISPR screens are expensive, slow, and can only test one perturbation at a time. If a computational model can reliably predict how a knockout reshapes the transcriptome, you can screen thousands of candidate drug targets in silico before committing to a single experiment.
 
-This project trains five models of increasing complexity to do exactly that, benchmarks them against each other and a naive baseline, and tests whether the best model can generalise to perturbations it never saw during training.
+This project reimplements and benchmarks the core prediction paradigm behind [scGen](https://www.nature.com/articles/s41592-019-0494-8), [CPA](https://www.embopress.org/doi/full/10.15252/msb.202211517), and [GEARS](https://www.nature.com/articles/s41587-023-01905-6) from scratch — five models in increasing architectural complexity, evaluated against a naive baseline with full train / validation / test separation.
+
+---
+
+## Pipeline
+
+```mermaid
+flowchart TD
+    A["Norman 2019 Perturb-seq\n(Zenodo · scPerturb curated)"] --> B
+
+    subgraph Preprocessing ["Preprocessing  ·  Scanpy + AnnData"]
+        B["QC filtering\n(min genes, max % mito)"] --> C["Library-size normalisation\n+ log1p transform"]
+        C --> D["2,000 HVG selection\nSeurat v3 flavour"]
+        D --> E["Stratified 80 / 10 / 10 split\nby perturbation group"]
+    end
+
+    E --> F
+    E --> G
+    E --> H
+    E --> I
+
+    subgraph Models ["Five Models"]
+        F["Logistic Regression\nbaseline"]
+        G["MLP Classifier\n3-layer feedforward"]
+        H["Effect MLP\ncontrol cell + pert embedding → predicted expression"]
+        I["Graph GCN\nSTRING PPI prior over 2,000-gene graph"]
+        J["scGen-style VAE\ndisentangled latent space · KL annealing"]
+    end
+
+    I --> K["STRING PPI v12.0\nhigh-confidence edges ≥ 700"]
+    J --> L["Zero-shot generalisation\nlatent arithmetic on unseen perturbations"]
+
+    H --> M["Evaluation\nPearson r · gene-level r · MSE"]
+    I --> M
+    J --> M
+```
 
 ---
 
 ## Results
 
-### Expression prediction (core task)
+### Expression prediction
 
 | Model | Per-pert Pearson r | Gene-level Pearson r | Test MSE |
-|---|---|---|---|
-| **Naive baseline** (predict control mean) | 0.9829 | — | — |
+|---|:---:|:---:|:---:|
+| Naive baseline (predict control mean) | 0.9829 | — | — |
 | Effect MLP | **0.9957** | 0.118 | 0.077 |
 | Graph GCN | 0.9903 | 0.087 | 0.079 |
 | scGen VAE | 0.9798 | 0.031 | 0.083 |
 
-### Perturbation classification (secondary task)
+### Perturbation classification
 
-| Model | Top-1 accuracy | Top-5 accuracy |
-|---|---|---|
-| Logistic Regression | 37.4% | 64.7% |
-| MLP Classifier | 45.9% | 70.7% |
-| Random chance | 0.4% | 2.1% |
+| Model | Top-1 | Top-5 | Random chance |
+|---|:---:|:---:|:---:|
+| Logistic Regression | 37.4% | 64.7% | 0.4% |
+| MLP Classifier | **45.9%** | **70.7%** | 2.1% |
 
-### Unseen perturbation generalisation (zero-shot)
-
-The scGen VAE is the only model that can generalise to perturbations it never trained on, by doing latent-space arithmetic with a nearest-seen perturbation's embedding.
+### Zero-shot generalisation (44 unseen perturbations)
 
 | Condition | Per-pert Pearson r |
-|---|---|
-| VAE zero-shot (44 unseen perturbations) | 0.9843 |
-| VAE oracle (true embedding, upper bound) | 0.9846 |
+|---|:---:|
+| VAE zero-shot (nearest-seen embedding transfer) | **0.9843** |
+| VAE oracle (true embedding — upper bound) | 0.9846 |
 | Nearest-seen Δ expression baseline | 0.9831 |
 
-**Reading the numbers:** The naive baseline (always predict control mean) already scores r=0.9829 because the vast majority of the 2,000 genes are unaffected by any single perturbation. What matters is the gap: the Effect MLP closes it to 0.9957, capturing the specific differential expression that distinguishes each knockout. The gene-level r (< 0.12 for all models) reflects a harder challenge — ranking individual genes by perturbation magnitude — and is a known limitation of the per-perturbation mean-prediction paradigm used here and in scGen/CPA/GEARS.
+> **Reading the numbers.** The naive baseline scores r=0.9829 because most of the 2,000 genes are unaffected by any single knockout — predicting no change is already a strong prior. The meaningful signal is the gap between r=0.9829 and r=0.9957: the Effect MLP captures the specific differential expression patterns that matter. Gene-level Pearson r (< 0.12 across all models) is the harder metric — it measures whether the model correctly ranks individual gene response magnitudes, which is a known limitation of the mean-prediction paradigm used here and in scGen/CPA/GEARS.
 
 ---
 
 ## Figures
 
-### Predicted vs observed gene expression (scGen VAE)
+### Predicted vs observed gene expression — scGen VAE
 
-![Six-panel scatter: predicted vs observed mean expression per perturbation](reports/figures/pred_vs_real.png)
+![Six-panel scatter: predicted vs observed mean expression across six perturbations](reports/figures/pred_vs_real.png)
 
-*Each panel is one held-out perturbation. Each point is one of 2,000 genes. Panels are ordered from worst to best Pearson r to show the full range of model behaviour.*
+*Each panel is one held-out perturbation, spanning the full range of model performance from r=0.97 to r=0.999. Every point is one of 2,000 genes plotted at 300 dpi. The dashed line is the identity.*
 
-### Model comparison across both tasks
+### Model comparison
 
-![Bar chart comparing all models](reports/figures/model_comparison.png)
+![Bar chart comparing classification accuracy and expression prediction Pearson r](reports/figures/model_comparison.png)
 
-*Left: perturbation classification (top-1 and top-5 accuracy). Right: expression prediction (per-perturbation and gene-level Pearson r). The gene-level bars reveal how much harder it is to rank individual genes than to predict mean perturbation direction.*
-
----
-
-## How It Works
-
-Five models in increasing architectural complexity, each addressing a different angle of the drug discovery problem:
-
-**1. Logistic Regression** (`train_baseline_classifier.py`)
-Maps each cell's 2,000-gene expression profile to a perturbation label. Establishes a linear floor — anything below this isn't useful. Achieves 37.4% top-1 accuracy on 237 classes (random = 0.4%).
-
-**2. MLP Classifier** (`train_mlp_classifier.py`)
-Three-layer feedforward network on the same classification task. Demonstrates that a neural model can meaningfully improve on the linear baseline (+8.5 pp top-1). This is the diagnostic model: if MLP can't beat logistic regression, the expression signal isn't strong enough for deeper modelling.
-
-**3. Effect MLP** (`train_perturbation_effect_model.py`)
-Shifts to the generative task: given a control cell and a perturbation ID, predict the full post-perturbation expression profile. Architecture: a cell encoder (2000→512) concatenated with a perturbation embedding (64-d), decoded through a 512→2000 layer. Trained on random control–perturbed pairs; evaluated using the mean control cell as a fixed reference. Best overall performance (r=0.9957).
-
-**4. Graph GCN** (`train_graph_perturbation_model.py`)
-Augments the Effect MLP with a structural prior: a two-layer graph convolution over the 2,000-gene interaction network from STRING, using only high-confidence edges (score ≥ 700). The perturbation representation is the mean GCN embedding of the target gene's STRING neighbours. Slightly below the plain MLP (r=0.9903), suggesting that at this dataset scale the PPI prior doesn't add signal beyond what the data already contains.
-
-**5. scGen-style VAE** (`train_scgen_style_model.py`)
-Learns a disentangled latent space where perturbation effects are additive shifts. Encoder maps a cell to μ, σ; decoder conditions on z concatenated with a perturbation embedding. KL weight is annealed from 0 → 1×10⁻⁴ over the first 10 epochs to prevent posterior collapse. Weaker on seen perturbations (r=0.9798) but the only model that generalises zero-shot to new ones via nearest-seen embedding transfer — which is the property that makes it useful for computational screening.
+*Left: perturbation classification top-1 and top-5 accuracy. Right: per-perturbation and gene-level Pearson r for the three generative models. The gene-level bars reveal the gap between predicting direction vs ranking magnitude.*
 
 ---
 
-## Dataset
+## Models
 
-**Norman et al. 2019 Perturb-seq** — [Science 365:786–793](https://doi.org/10.1126/science.aax4438)
+<details>
+<summary><strong>Logistic Regression — linear baseline</strong></summary>
 
-| | |
-|---|---|
-| Cells (post-QC) | 111,391 |
-| Genes (HVG) | 2,000 (Seurat v3 selection) |
-| Perturbations | 237 (single + combinatorial CRISPR knockouts) |
-| Cell line | K562 (chronic myelogenous leukaemia) |
-| Split | 80 / 10 / 10 stratified by perturbation group |
-| Source | Zenodo [`10.5281/zenodo.7041849`](https://zenodo.org/record/7041849) |
+**Task:** classify which of 237 perturbations a cell received from its 2,000-gene expression profile.
 
-Preprocessing: library-size normalisation → log1p → 2,000 HVG selection. Raw counts are not retained after normalisation.
+**Why it matters:** establishes a linear floor. Achieves 37.4% top-1 / 64.7% top-5 accuracy against a 0.4% random baseline — strong signal that expression profiles are perturbation-discriminative.
+
+**Implementation:** scikit-learn `LogisticRegression` (lbfgs solver, max_iter=1000). No dimensionality reduction — raw 2,000-d HVG vector.
+
+</details>
+
+<details>
+<summary><strong>MLP Classifier — neural baseline</strong></summary>
+
+**Task:** same 237-class classification with a three-layer feedforward network.
+
+**Architecture:** `Linear(2000→512) → ReLU → Dropout(0.3) → Linear(512→256) → ReLU → Dropout(0.3) → Linear(256→237)`
+
+**Result:** 45.9% top-1 (+8.5 pp over logistic regression), confirming the expression signal supports neural modelling. Serves as the diagnostic model: if MLP can't beat logistic regression, deeper architectures are not warranted.
+
+</details>
+
+<details>
+<summary><strong>Effect MLP — best overall performance</strong></summary>
+
+**Task:** given a control cell and a perturbation identity, predict the full 2,000-gene post-perturbation expression profile.
+
+**Architecture:**
+```
+control_expr (2000) ──► Linear(2000→512) ──► ReLU ──────────────────┐
+                                                                      ├─ concat
+pert_id ──► Embedding(237, 64) ──────────────────────────────────────┘
+         ──► Linear(576→512) ──► ReLU ──► Dropout(0.3) ──► Linear(512→2000)
+```
+
+**Training:** pairs are sampled as (random control cell, perturbed cell), so the model sees diverse baseline contexts per epoch rather than a fixed mean. Evaluation uses the mean control cell as a deterministic reference.
+
+**Loss:** MSELoss. Optimiser: Adam (lr=1e-3). Per-pert Pearson r=0.9957.
+
+</details>
+
+<details>
+<summary><strong>Graph GCN — STRING PPI biological prior</strong></summary>
+
+**Task:** same as Effect MLP, but the perturbation representation is derived from the protein interaction neighbourhood of the target gene rather than a learned embedding.
+
+**Graph construction:** STRING PPI v12.0, human (taxon 9606), edges with combined score ≥ 700 (high confidence). Restricted to HVG–HVG interactions. Normalised adjacency Ã = D⁻½(A+I)D⁻½.
+
+**Architecture:**
+```
+gene embeddings (2000, 64)
+  ──► GCNLayer(64→128) ──► ReLU ──► Dropout
+  ──► GCNLayer(128→64)
+  ──► pert neighbourhood mean-pooling → pert_graph_feat (64)
+
+control_expr ──► Linear(2000→512) ──► concat(512+64) ──► Linear(576→512) ──► Linear(512→2000)
+```
+
+**Note:** implemented from scratch using normalised matrix multiplication — no PyTorch Geometric dependency. Result (r=0.9903) suggests the PPI prior does not add signal beyond what the data already encodes at this scale.
+
+</details>
+
+<details>
+<summary><strong>scGen-style VAE — zero-shot generalisation</strong></summary>
+
+**Task:** learn a disentangled latent space where perturbation effects are additive shifts, enabling prediction for perturbations not seen during training.
+
+**Architecture:**
+```
+Encoder:  Linear(2000→512) → ReLU → Linear(512→256) → ReLU → μ(128), logvar(128)
+Reparam:  z = μ + ε·exp(½ logvar),  ε ~ N(0, I)
+Decoder:  concat(z:128, pert_emb:64) → Linear(192→256) → ReLU → Linear(256→512) → ReLU → Linear(512→2000)
+```
+
+**Loss:** ELBO = MSE(recon, target) + β · KL. β is annealed linearly from 0 → 1×10⁻⁴ over the first 10 epochs to prevent posterior collapse before the reconstruction loss stabilises.
+
+**Inference:** `encode(mean_ctrl) → z_ctrl → decode(z_ctrl, pert_emb[p])` — the perturbation is applied as an additive operator in latent space, following the scGen paradigm.
+
+**Zero-shot:** for unseen perturbations, the embedding of the nearest seen perturbation (by STRING PPI gene proximity, fallback to expression-space cosine similarity) is used. Achieves r=0.9843, within 0.0003 of the oracle upper bound.
+
+</details>
+
+---
+
+## Tech Stack
+
+| Category | Tool | Role |
+|---|---|---|
+| Single-cell analysis | [Scanpy](https://scanpy.readthedocs.io/) + [AnnData](https://anndata.readthedocs.io/) | QC, normalisation, HVG selection, h5ad I/O |
+| Deep learning | [PyTorch](https://pytorch.org/) 2.0 | MLP, GCN, VAE — all implemented from scratch |
+| Classical ML | [scikit-learn](https://scikit-learn.org/) | Logistic regression baseline, label encoding |
+| Biological network | [STRING PPI v12.0](https://string-db.org/) | Protein interaction graph for GCN prior |
+| Numerical | NumPy · SciPy | Pearson r, sparse matrix ops, stratified split |
+| Visualisation | Matplotlib · Seaborn | Publication-quality figures at 300 dpi |
+| Config | PyYAML | Single `configs/default.yaml` — all hyperparameters in one place |
+| Data format | h5py · zarr · AnnData HDF5 | Compressed `.h5ad` for processed single-cell data |
 
 ---
 
@@ -108,31 +212,32 @@ Preprocessing: library-size normalisation → log1p → 2,000 HVG selection. Raw
 ```
 perturbation-drug-discovery/
 ├── configs/
-│   └── default.yaml              # all hyperparameters and data constants
+│   └── default.yaml                         # all hyperparameters — edit here, not in code
 ├── src/
-│   ├── constants.py              # single source of truth (reads default.yaml)
+│   ├── constants.py                         # reads default.yaml, shared across all scripts
 │   ├── data/
-│   │   ├── download_norman2019.py
-│   │   ├── download_string_ppi.py
-│   │   ├── prepare_perturbation_dataset.py
+│   │   ├── download_norman2019.py           # fetches dataset from Zenodo
+│   │   ├── download_string_ppi.py           # queries STRING API, filters to HVGs
+│   │   ├── prepare_perturbation_dataset.py  # QC → normalise → HVG → split
 │   │   └── preprocessor.py
 │   ├── models/
-│   │   ├── train_baseline_classifier.py
-│   │   ├── train_mlp_classifier.py
-│   │   ├── train_perturbation_effect_model.py
-│   │   ├── train_graph_perturbation_model.py
-│   │   └── train_scgen_style_model.py
+│   │   ├── train_baseline_classifier.py     # logistic regression
+│   │   ├── train_mlp_classifier.py          # MLP classifier
+│   │   ├── train_perturbation_effect_model.py  # Effect MLP (best r)
+│   │   ├── train_graph_perturbation_model.py   # Graph GCN + STRING PPI
+│   │   └── train_scgen_style_model.py       # VAE with KL annealing
 │   ├── experiments/
-│   │   └── unseen_perturbation_generalization.py
+│   │   └── unseen_perturbation_generalization.py  # zero-shot eval on 44 held-out perts
 │   └── analysis/
-│       ├── visualize_results.py
+│       ├── visualize_results.py             # generates all three figures
 │       └── interpret_perturbation_results.py
 ├── data/
-│   ├── raw/                      # downloaded, gitignored
-│   ├── processed/                # h5ad, gitignored
-│   ├── models/                   # .pt checkpoints, gitignored
-│   └── results/                  # metrics JSON, gitignored
-├── reports/figures/              # publication-quality PNGs, committed
+│   ├── raw/          # downloaded h5ad (gitignored, ~2 GB)
+│   ├── processed/    # normalised AnnData (gitignored)
+│   ├── external/     # STRING PPI TSV (gitignored)
+│   ├── models/       # .pt checkpoints (gitignored)
+│   └── results/      # metrics JSON per model (gitignored)
+├── reports/figures/  # committed PNGs at 300 dpi
 └── Makefile
 ```
 
@@ -141,39 +246,62 @@ perturbation-drug-discovery/
 ## Quickstart
 
 ```bash
-# 1. Create environment and install dependencies
-make install
+# Environment
+make install          # creates .venv and installs requirements
 
-# 2. Download dataset (~2 GB) and STRING PPI network
-make data
+# Data (~2 GB download)
+make data             # downloads Norman 2019 h5ad + STRING PPI TSV
 
-# 3. Preprocess: QC filtering, HVG selection, train/val/test split
-make preprocess
+# Preprocessing
+make preprocess       # QC → normalise → HVG → 80/10/10 stratified split
 
-# 4. Train all five models sequentially
+# Training (runs all five models sequentially)
 make train
 
-# 5. Run tests
+# Tests
 make test
 ```
 
-Individual model training:
+Individual scripts:
 ```bash
 source .venv/bin/activate
-python src/models/train_perturbation_effect_model.py   # Effect MLP
-python src/models/train_scgen_style_model.py           # VAE
+
+# Train a specific model
+python src/models/train_perturbation_effect_model.py
+python src/models/train_scgen_style_model.py
+
+# Zero-shot evaluation (requires scgen_model.pt)
 python src/experiments/unseen_perturbation_generalization.py
-python src/analysis/visualize_results.py               # regenerate figures
+
+# Regenerate all figures
+python src/analysis/visualize_results.py
 ```
+
+---
+
+## Dataset
+
+**Norman et al. 2019 Perturb-seq** — [Science 365:786–793](https://doi.org/10.1126/science.aax4438)
+
+CRISPRi screen in K562 cells profiling 237 single and combinatorial gene knockouts with single-cell RNA-seq. Curated via [scPerturb](https://projects.sanderlab.org/scperturb/).
+
+| | |
+|---|---|
+| Cells (post-QC) | 111,391 |
+| Genes (HVGs) | 2,000 (Seurat v3) |
+| Perturbations | 237 (single + combinatorial knockouts) |
+| Cell line | K562 — chronic myelogenous leukaemia |
+| Train / Val / Test | 80% / 10% / 10% stratified by perturbation |
+| Source | Zenodo [`10.5281/zenodo.7041849`](https://zenodo.org/record/7041849) |
 
 ---
 
 ## Known Limitations
 
-- **Gene-level Pearson r < 0.12** across all models — bulk perturbation direction is captured well, but ranking individual genes by response magnitude is not reliable. Drug target ranking from these outputs requires an additional differential expression step.
-- **Double perturbations are underfit** — combinatorial knockouts have fewer cells per condition, producing noisier supervision.
-- **Cell line specificity** — all results are on K562. Generalisation to primary cells or other lines is untested.
-- **No compound-level data** — the pipeline is gene-centric; mapping from gene targets to small molecules requires external databases (e.g. ChEMBL, DGIdb).
+- **Gene-level Pearson r < 0.12** — direction of perturbation effects is captured well; ranking individual gene magnitudes is not reliable. Downstream drug target ranking requires a dedicated differential expression step.
+- **Double perturbations underfit** — combinatorial knockouts have fewer cells per condition, producing noisier training signal.
+- **Cell-line specific** — all results are on K562. Generalisation to primary cells or other lines is untested.
+- **No compound mapping** — pipeline is gene-centric; translating knockouts to small-molecule inhibitors requires external databases (ChEMBL, DGIdb).
 
 ---
 
