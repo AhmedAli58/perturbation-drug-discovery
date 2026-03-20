@@ -28,20 +28,20 @@ It reimplements the core prediction paradigm behind [scGen](https://www.nature.c
 ## Pipeline
 
 ```mermaid
-flowchart LR
-    A[(Norman 2019\nPerturb-seq)] --> B[QC Filtering]
-    B --> C[Normalise\nlog1p]
-    C --> D[2000 HVGs\nSeurat v3]
-    D --> E[80 / 10 / 10\nStratified Split]
+flowchart TD
+    A[(Norman 2019 Perturb-seq)] --> B[QC Filtering]
+    B --> C[Normalise + log1p]
+    C --> D[2000 HVGs — Seurat v3]
+    D --> E[80 / 10 / 10 Stratified Split]
 
-    E --> F[Logistic\nRegression]
-    E --> G[MLP\nClassifier]
-    E --> H[Effect\nMLP]
-    E --> I[Graph\nGCN]
-    E --> J[scGen\nVAE]
+    E --> F[Logistic Regression]
+    E --> G[MLP Classifier]
+    E --> H[Effect MLP]
+    E --> I[Graph GCN]
+    E --> J[scGen VAE]
 
-    PPI[(STRING PPI\nv12.0)] -.->|gene graph| I
-    J --> K[Zero-shot\nEvaluation]
+    PPI[(STRING PPI v12.0)] -.->|gene interaction graph| I
+    J --> K[Zero-shot Evaluation — 44 unseen perturbations]
 ```
 
 ---
