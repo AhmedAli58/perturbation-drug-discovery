@@ -27,30 +27,9 @@ It reimplements the core prediction paradigm behind [scGen](https://www.nature.c
 
 ## Pipeline
 
-```
-  Norman 2019 Perturb-seq  ─────────────────────────────────────────────
-  111,391 cells · 237 CRISPR knockouts · K562 cell line
-         │
-         ▼
-  ┌─────────────────────────────────────────────┐
-  │  Preprocessing  (Scanpy + AnnData)          │
-  │  QC filtering → log1p normalise → 2000 HVGs │
-  │  Stratified 80 / 10 / 10 split              │
-  └──────────────────────┬──────────────────────┘
-                         │
-       ┌─────────────────┼──────────────────────┐
-       │                 │                      │
-  Classification    Expression prediction   Zero-shot
-       │                 │                      │
-  ┌────┴────┐    ┌────────┼────────┐      ┌─────┴──────┐
-  │ LogReg  │    │ Effect │ Graph  │      │  scGen VAE │
-  │  (sklearn) │ │  MLP   │  GCN  │      │  (VAE +    │
-  └─────────┘   │        │+STRING │      │  KL anneal)│
-  ┌─────────┐   │        │  PPI   │      └─────┬──────┘
-  │   MLP   │   └────────┴────────┘            │
-  │Classifier│                           44 unseen perts
-  └─────────┘                            (zero-shot eval)
-```
+<p align="center">
+  <img src="reports/figures/pipeline.png" width="900" alt="End-to-end computational pipeline"/>
+</p>
 
 ---
 
