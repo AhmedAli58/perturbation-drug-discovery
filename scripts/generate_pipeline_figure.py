@@ -1,4 +1,7 @@
-"""Generate a clean, minimal pipeline diagram saved to reports/figures/pipeline.png"""
+"""
+Concourse CI-style pipeline diagram.
+Dark navy · monospace · colored job boxes · clean connector lines.
+"""
 
 from pathlib import Path
 import matplotlib
@@ -9,142 +12,141 @@ from matplotlib.patches import FancyBboxPatch
 FIG_DIR = Path(__file__).resolve().parents[1] / "reports" / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Palette ───────────────────────────────────────────────────────────────────
-SLATE   = "#4A5568"   # data / preprocessing
-BLUE    = "#3182CE"   # classification
-GREEN   = "#2F855A"   # expression prediction
-PURPLE  = "#6B46C1"   # zero-shot VAE
-RESULT  = "#1A202C"   # result labels
-ARROW   = "#718096"
+BG      = "#1d2532"
+RESOURCE= "#2c3750"
+RES_BDR = "#3d4f6e"
+JOB_GRN = "#4caf50"
+JOB_PRP = "#7c5cbf"
+JOB_BLU = "#3a7bd5"
+LINE    = "#6b7fa3"
+LINE_DIM= "#4a5f80"
+TXT     = "#e8eaf0"
+TXT_DIM = "#8899bb"
+MONO    = "monospace"
 
-fig, ax = plt.subplots(figsize=(11, 9))
-fig.patch.set_facecolor("white")
-ax.set_facecolor("white")
-ax.set_xlim(0, 11)
-ax.set_ylim(0, 9)
+# ── canvas ────────────────────────────────────────────────────────────────────
+fig, ax = plt.subplots(figsize=(13, 6.2))
+fig.patch.set_facecolor(BG)
+ax.set_facecolor(BG)
+ax.set_xlim(0, 13)
+ax.set_ylim(1.9, 6.65)
 ax.axis("off")
 
+# ── geometry ──────────────────────────────────────────────────────────────────
+JOB_W, JOB_H = 1.35, 1.0     # job box dims (shorter → gap between boxes)
+RES_W, RES_H = 2.1,  0.50
+OUT_W        = 2.55
 
-def rbox(ax, cx, cy, w, h, label, color, fontsize=10.5, alpha=1.0):
-    """Rounded rectangle centered at (cx, cy)."""
-    patch = FancyBboxPatch(
-        (cx - w / 2, cy - h / 2), w, h,
-        boxstyle="round,pad=0.0,rounding_size=0.18",
-        facecolor=color, edgecolor="white",
-        linewidth=0, alpha=alpha, zorder=3,
-    )
-    ax.add_patch(patch)
+IX   = 1.1    # input resources x
+PJX  = 3.1    # preprocess job x
+PRX  = 5.15   # processed.h5ad x
+TRX  = 6.5    # vertical trunk x
+JX   = 7.85   # job boxes x
+OX   = 10.35  # output resources x
+
+# 4 jobs, evenly spaced with 0.3 gap between boxes
+JYS  = [6.05, 4.85, 3.65, 2.45]   # classify / effect-mlp / graph-gcn / scgen-vae
+PY   = (JYS[0] + JYS[-1]) / 2     # preprocess y  ≈ 4.25
+NY   = 5.15   # norman-2019 y
+SY   = 3.35   # string-ppi y
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+def rbox(cx, cy, label, w=RES_W, h=RES_H, color=RESOURCE,
+         border=RES_BDR, fs=8.5, bold=False):
+    ax.add_patch(FancyBboxPatch(
+        (cx - w/2, cy - h/2), w, h,
+        boxstyle="round,pad=0.0,rounding_size=0.09",
+        facecolor=color, edgecolor=border, linewidth=1.2, zorder=3))
     ax.text(cx, cy, label, ha="center", va="center",
-            fontsize=fontsize, fontweight="semibold",
-            color="white", zorder=4, wrap=False)
+            fontsize=fs, color=TXT, fontfamily=MONO,
+            fontweight="bold" if bold else "normal", zorder=4)
 
 
-def down_arrow(ax, cx, y1, y2):
-    ax.annotate("", xy=(cx, y2), xytext=(cx, y1),
-                arrowprops=dict(arrowstyle="-|>", color=ARROW,
-                                lw=1.4, mutation_scale=12),
-                zorder=2)
+def jbox(cx, cy, label, color=JOB_GRN):
+    ax.add_patch(FancyBboxPatch(
+        (cx - JOB_W/2, cy - JOB_H/2), JOB_W, JOB_H,
+        boxstyle="round,pad=0.0,rounding_size=0.09",
+        facecolor=color, edgecolor="none", linewidth=0, zorder=3))
+    ax.text(cx, cy, label, ha="center", va="center",
+            fontsize=9.5, color="white", fontfamily=MONO,
+            fontweight="bold", zorder=4)
 
 
-def split_arrow(ax, x1, y1, x2, y2):
-    """Diagonal arrow from split box down to model column."""
-    ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
-                arrowprops=dict(arrowstyle="-|>", color=ARROW,
-                                lw=1.4, mutation_scale=12,
-                                connectionstyle="arc3,rad=0.0"),
-                zorder=2)
+def hline(x1, x2, y, color=LINE, lw=1.5, dash=False):
+    ax.plot([x1, x2], [y, y], color=color, lw=lw,
+            linestyle=(0, (5, 3)) if dash else "solid",
+            solid_capstyle="round", zorder=2)
 
 
-# ── Title ─────────────────────────────────────────────────────────────────────
-ax.text(5.5, 8.7, "Perturbation-Based Drug Target Discovery  —  Pipeline",
-        ha="center", va="center", fontsize=13, fontweight="bold", color=RESULT)
-
-# ── 1. Data ───────────────────────────────────────────────────────────────────
-rbox(ax, 5.5, 8.1, 5.8, 0.65,
-     "Norman 2019 Perturb-seq   ·   111,391 cells   ·   237 perturbations",
-     SLATE, fontsize=10)
-
-down_arrow(ax, 5.5, 7.77, 7.52)
-
-# ── 2. Preprocessing (single merged box) ─────────────────────────────────────
-rbox(ax, 5.5, 7.25, 5.8, 0.55,
-     "QC filtering   →   Normalise + log1p   →   2,000 HVGs",
-     SLATE, fontsize=10)
-
-down_arrow(ax, 5.5, 6.97, 6.67)
-
-# ── 3. Split ──────────────────────────────────────────────────────────────────
-rbox(ax, 5.5, 6.4, 4.4, 0.52,
-     "Stratified split   ·   80% train  /  10% val  /  10% test",
-     SLATE, fontsize=10)
-
-# ── Branching arrows from split → 3 columns ──────────────────────────────────
-COL = [1.8, 5.5, 9.2]   # column x positions
-for cx in COL:
-    split_arrow(ax, 5.5, 6.14, cx, 5.62)
-
-# ── Column headers ────────────────────────────────────────────────────────────
-ax.text(COL[0], 5.48, "Classification", ha="center", va="top",
-        fontsize=9.5, fontweight="bold", color=BLUE)
-ax.text(COL[1], 5.48, "Expression Prediction", ha="center", va="top",
-        fontsize=9.5, fontweight="bold", color=GREEN)
-ax.text(COL[2], 5.48, "Zero-shot", ha="center", va="top",
-        fontsize=9.5, fontweight="bold", color=PURPLE)
-
-# ── 4. Models ─────────────────────────────────────────────────────────────────
-# Classification
-rbox(ax, COL[0], 4.85, 2.9, 0.52, "Logistic Regression", BLUE, fontsize=9.5)
-down_arrow(ax, COL[0], 4.59, 4.29)
-rbox(ax, COL[0], 4.0, 2.9, 0.52, "MLP Classifier", BLUE, fontsize=9.5)
-
-# Expression Prediction
-rbox(ax, COL[1], 4.85, 2.9, 0.52, "Effect MLP", GREEN, fontsize=9.5)
-down_arrow(ax, COL[1], 4.59, 4.29)
-rbox(ax, COL[1], 4.0, 2.9, 0.52, "Graph GCN  (STRING PPI)", GREEN, fontsize=9.5)
-
-# Zero-shot
-rbox(ax, COL[2], 4.42, 2.9, 0.52, "scGen VAE", PURPLE, fontsize=9.5)
-
-# ── Arrows down to results ────────────────────────────────────────────────────
-down_arrow(ax, COL[0], 3.74, 3.32)
-down_arrow(ax, COL[1], 3.74, 3.32)
-down_arrow(ax, COL[2], 4.16, 3.32)
-
-# ── 5. Results ────────────────────────────────────────────────────────────────
-def result_box(ax, cx, cy, w, h, line1, line2, color):
-    patch = FancyBboxPatch(
-        (cx - w / 2, cy - h / 2), w, h,
-        boxstyle="round,pad=0.0,rounding_size=0.18",
-        facecolor=color, edgecolor="white",
-        linewidth=0, alpha=0.12, zorder=3,
-    )
-    ax.add_patch(patch)
-    ax.text(cx, cy + 0.14, line1, ha="center", va="center",
-            fontsize=11, fontweight="bold", color=color, zorder=4)
-    ax.text(cx, cy - 0.18, line2, ha="center", va="center",
-            fontsize=8.5, color=RESULT, alpha=0.65, zorder=4)
+def vline(x, y1, y2, color=LINE, lw=1.5):
+    ax.plot([x, x], [y1, y2], color=color, lw=lw,
+            solid_capstyle="round", zorder=2)
 
 
-result_box(ax, COL[0], 2.95, 2.9, 0.82,
-           "Top-1  46%  ·  Top-5  71%",
-           "random chance = 0.4%",
-           BLUE)
+def elbow(x1, y1, xm, y2, color=LINE, lw=1.5, dash=False):
+    """Horizontal then vertical L-shape."""
+    ax.plot([x1, xm, xm], [y1, y1, y2], color=color, lw=lw,
+            linestyle=(0, (5, 3)) if dash else "solid",
+            solid_capstyle="round", zorder=2)
 
-result_box(ax, COL[1], 2.95, 2.9, 0.82,
-           "Per-pert r = 0.9957",
-           "naive baseline r = 0.9829",
-           GREEN)
 
-result_box(ax, COL[2], 2.95, 2.9, 0.82,
-           "Zero-shot r = 0.9843",
-           "44 unseen perturbations",
-           PURPLE)
+# ── inputs ────────────────────────────────────────────────────────────────────
+rbox(IX, NY, "norman-2019")
+rbox(IX, SY, "string-ppi-v12")
 
-# ── Thin divider line between models and results ──────────────────────────────
-ax.axhline(3.45, xmin=0.06, xmax=0.94, color="#E2E8F0", lw=1.2, zorder=1)
+# ── inputs → preprocess ───────────────────────────────────────────────────────
+MX = PJX - JOB_W/2 - 0.05    # merge x (just left of preprocess)
+# both inputs elbow into merge x then down/up to PY
+elbow(IX + RES_W/2, NY, MX, PY)
+elbow(IX + RES_W/2, SY, MX, PY)
 
-plt.tight_layout(pad=0.3)
+# ── preprocess job ────────────────────────────────────────────────────────────
+jbox(PJX, PY, "preprocess")
+
+# ── preprocess → processed.h5ad ───────────────────────────────────────────────
+hline(PJX + JOB_W/2, PRX - RES_W/2, PY)
+rbox(PRX, PY, "processed.h5ad", w=2.3)
+
+# ── processed.h5ad → trunk ────────────────────────────────────────────────────
+hline(PRX + 2.3/2, TRX, PY)
+
+# ── vertical trunk ────────────────────────────────────────────────────────────
+vline(TRX, JYS[-1], JYS[0])
+
+# ── branches trunk → jobs ─────────────────────────────────────────────────────
+for y in JYS:
+    hline(TRX, JX - JOB_W/2, y)
+
+# ── job boxes ─────────────────────────────────────────────────────────────────
+jbox(JX, JYS[0], "classify",   color=JOB_BLU)
+jbox(JX, JYS[1], "effect-mlp", color=JOB_GRN)
+jbox(JX, JYS[2], "graph-gcn",  color=JOB_GRN)
+jbox(JX, JYS[3], "scgen-vae",  color=JOB_PRP)
+
+# ── string-ppi dashed → graph-gcn ─────────────────────────────────────────────
+# route horizontally at SY (below preprocess bottom) then elbow up to graph-gcn
+elbow(IX + RES_W/2, SY, TRX - 0.08, JYS[2],
+      color=LINE_DIM, lw=1.2, dash=True)
+
+# ── jobs → output resources ───────────────────────────────────────────────────
+colors = [JOB_BLU, JOB_GRN, JOB_GRN, JOB_PRP]
+labels = [
+    "top-1: 46%  ·  top-5: 71%",
+    "per-pert r = 0.9957",
+    "per-pert r = 0.9903",
+    "zero-shot r = 0.9843",
+]
+for y, color, label in zip(JYS, colors, labels):
+    hline(JX + JOB_W/2, OX - OUT_W/2, y, color=color, lw=1.4)
+    rbox(OX, y, label, w=OUT_W)
+
+# ── header ────────────────────────────────────────────────────────────────────
+ax.text(0.25, 6.55, "perturbation-drug-discovery  /  main",
+        ha="left", va="center", fontsize=8.5, color=TXT_DIM, fontfamily=MONO)
+
+plt.tight_layout(pad=0.15)
 out = FIG_DIR / "pipeline.png"
-fig.savefig(out, dpi=300, bbox_inches="tight", facecolor="white")
+fig.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
 plt.close(fig)
 print(f"Saved → {out}")
