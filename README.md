@@ -77,6 +77,20 @@ flowchart LR
   end
 ```
 
+## Visual Snapshot
+
+Pipeline overview:
+
+![Pipeline overview](reports/figures/pipeline.png)
+
+Current benchmark comparison across the model ladder:
+
+![Model comparison](reports/figures/model_comparison.png)
+
+Example predicted-versus-observed response view from the current benchmark artifacts:
+
+![Predicted vs observed perturbation response](reports/figures/pred_vs_real.png)
+
 ## Current Dataset
 
 - Dataset: Norman et al. 2019 Perturb-seq
