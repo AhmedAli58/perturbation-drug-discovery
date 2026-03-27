@@ -22,5 +22,9 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=False))
 
 
+def read_json(path: Path) -> Any:
+    return json.loads(path.read_text())
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()

@@ -36,10 +36,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.constants import SEED  # noqa: E402
+from src.runtime_paths import env_int, env_path  # noqa: E402
 
-PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
-RESULTS_DIR    = PROJECT_ROOT / "data" / "results"
-MODELS_DIR     = PROJECT_ROOT / "data" / "models"
+PROCESSED_PATH = env_path(
+    "PDD_PROCESSED_PATH",
+    PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad",
+)
+RESULTS_DIR    = env_path("PDD_RESULTS_DIR", PROJECT_ROOT / "data" / "results")
+MODELS_DIR     = env_path("PDD_MODELS_DIR", PROJECT_ROOT / "data" / "models")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -49,8 +53,8 @@ BASELINE_PATH  = RESULTS_DIR / "baseline_metrics.json"
 
 # ── Hyperparameters ────────────────────────────────────────────────────────
 LR         = 1e-3
-BATCH_SIZE = 512
-EPOCHS     = 20
+BATCH_SIZE = env_int("PDD_BATCH_SIZE", 512)
+EPOCHS     = env_int("PDD_EPOCHS", 20)
 DROPOUT    = 0.3
 HIDDEN     = [512, 256]
 
@@ -158,7 +162,10 @@ def evaluate(loader: DataLoader) -> tuple[float, float]:
 
 
 history: list[dict] = []
-print(f"\n{'Epoch':>5}  {'Train Loss':>10}  {'Train Top1':>10}  {'Val Top1':>8}  {'Val Top5':>8}  {'Time':>6}")
+print(
+    f"\n{'Epoch':>5}  {'Train Loss':>10}  {'Train Top1':>10}  "
+    f"{'Val Top1':>8}  {'Val Top5':>8}  {'Time':>6}"
+)
 print("─" * 60)
 
 for epoch in range(1, EPOCHS + 1):
