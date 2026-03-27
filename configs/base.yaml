@@ -1,0 +1,31 @@
+paths:
+  raw_dataset: data/raw/norman2019.h5ad
+  string_network: data/external/string_ppi_edges.tsv
+  artifact_root: artifacts
+  mlflow_tracking_uri: mlruns
+
+dataset:
+  name: norman2019
+  perturbation_key: perturbation
+  control_label: control
+  min_genes: 200
+  min_cells: 3
+  max_pct_mito: 20.0
+  target_sum: 10000.0
+  n_top_genes: 2000
+  hvg_flavor: seurat_v3
+
+split:
+  train_frac: 0.8
+  val_frac: 0.1
+  test_frac: 0.1
+  heldout_frac: 0.2
+  min_cells_per_pert: 100
+  seed: 42
+
+ranking:
+  effect_strength_weight: 0.5
+  model_agreement_weight: 0.3
+  support_cells_weight: 0.2
+  confidence_agreement_weight: 0.6
+  confidence_support_weight: 0.4
