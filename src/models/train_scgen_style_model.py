@@ -50,9 +50,15 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
-RESULTS_DIR    = PROJECT_ROOT / "data" / "results"
-MODELS_DIR     = PROJECT_ROOT / "data" / "models"
+from src.constants import CONTROL_LABEL, SEED  # noqa: E402
+from src.runtime_paths import env_int, env_path  # noqa: E402
+
+PROCESSED_PATH = env_path(
+    "PDD_PROCESSED_PATH",
+    PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad",
+)
+RESULTS_DIR    = env_path("PDD_RESULTS_DIR", PROJECT_ROOT / "data" / "results")
+MODELS_DIR     = env_path("PDD_MODELS_DIR", PROJECT_ROOT / "data" / "models")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -65,11 +71,10 @@ PERT_EMB_DIM = 64
 ENC_H1, ENC_H2 = 512, 256
 DEC_H1, DEC_H2 = 256, 512
 LR           = 1e-3
-BATCH_SIZE   = 256
-EPOCHS       = 40
+BATCH_SIZE   = env_int("PDD_BATCH_SIZE", 256)
+EPOCHS       = env_int("PDD_EPOCHS", 40)
 KL_ANNEAL    = 10          # epochs over which β goes 0 → KL_MAX
 KL_MAX       = 1e-4        # final β weight (keeps KL from dominating)
-from src.constants import SEED, CONTROL_LABEL  # noqa: E402
 
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
@@ -457,10 +462,10 @@ print(f"\n  Gene-level Pearson r improvement over best prior model: "
 
 # Perturbation prediction extremes
 sorted_perts = sorted(pert_eval.items(), key=lambda x: x[1]["pearson_r"])
-print(f"\n  Hardest perturbations to predict:")
+print("\n  Hardest perturbations to predict:")
 for p, v in sorted_perts[:5]:
     print(f"    {p:<36s}  r={v['pearson_r']:+.3f}  n={v['n_cells']}")
-print(f"  Easiest perturbations to predict:")
+print("  Easiest perturbations to predict:")
 for p, v in sorted_perts[-5:]:
     print(f"    {p:<36s}  r={v['pearson_r']:+.3f}  n={v['n_cells']}")
 

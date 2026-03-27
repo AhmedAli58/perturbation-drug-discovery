@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from time import time
@@ -44,9 +45,14 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
-RESULTS_DIR    = PROJECT_ROOT / "data" / "results"
-MODELS_DIR     = PROJECT_ROOT / "data" / "models"
+PROCESSED_PATH = Path(
+    os.environ.get(
+        "PDD_PROCESSED_PATH",
+        str(PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"),
+    )
+)
+RESULTS_DIR    = Path(os.environ.get("PDD_RESULTS_DIR", str(PROJECT_ROOT / "data" / "results")))
+MODELS_DIR     = Path(os.environ.get("PDD_MODELS_DIR", str(PROJECT_ROOT / "data" / "models")))
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -54,13 +60,14 @@ METRICS_PATH = RESULTS_DIR / "perturbation_effect_metrics.json"
 MODEL_PATH   = MODELS_DIR  / "perturbation_effect_model.pt"
 
 # ── Hyperparameters ────────────────────────────────────────────────────────
-from src.constants import SEED, CONTROL_LABEL  # noqa: E402
+from src.constants import CONTROL_LABEL, SEED  # noqa: E402
+from src.runtime_paths import env_int  # noqa: E402
 
 EMBED_DIM  = 64
 HIDDEN1    = 512
 LR         = 1e-3
-BATCH_SIZE = 256
-EPOCHS     = 30
+BATCH_SIZE = env_int("PDD_BATCH_SIZE", 256)
+EPOCHS     = env_int("PDD_EPOCHS", 30)
 DROPOUT    = 0.3
 
 torch.manual_seed(SEED)
@@ -243,7 +250,7 @@ mean_ctrl_t = torch.from_numpy(mean_ctrl).unsqueeze(0).to(DEVICE)   # (1, 2000)
 all_pred, all_target = [], []
 
 with torch.no_grad():
-    for ctrl, pert_idx, target in test_loader:
+    for _ctrl, pert_idx, target in test_loader:
         # Replace random ctrl with mean_ctrl for deterministic eval
         mc = mean_ctrl_t.expand(target.size(0), -1)
         pred = model(mc, pert_idx.to(DEVICE))
@@ -358,8 +365,8 @@ print("  Easiest perturbations to predict (highest r):")
 for p, v in sorted_perts[-5:]:
     print(f"    {p:<34s}  r={v['pearson_r']:+.3f}  n={v['n_cells']}")
 
-print(f"\n  Training loss curve (every 5 epochs):")
+print("\n  Training loss curve (every 5 epochs):")
 for h in history[::5]:
-    print(f"    epoch {h['epoch']:>2}  train={h['train_mse']:.4f}  test={h['test_mse']:.4f}")
+    print(f"    epoch {h['epoch']:>2}  train={h['train_mse']:.4f}  val={h['val_mse']:.4f}")
 
 print("\nPerturbation effect model training complete.")

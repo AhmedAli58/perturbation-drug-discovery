@@ -29,10 +29,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.constants import SEED  # noqa: E402
+from src.runtime_paths import env_path  # noqa: E402
 
-PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
-RESULTS_DIR    = PROJECT_ROOT / "data" / "results"
-MODELS_DIR     = PROJECT_ROOT / "data" / "models"
+PROCESSED_PATH = env_path(
+    "PDD_PROCESSED_PATH",
+    PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad",
+)
+RESULTS_DIR    = env_path("PDD_RESULTS_DIR", PROJECT_ROOT / "data" / "results")
+MODELS_DIR     = env_path("PDD_MODELS_DIR", PROJECT_ROOT / "data" / "models")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 

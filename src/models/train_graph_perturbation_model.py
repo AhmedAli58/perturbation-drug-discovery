@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from time import time
@@ -58,10 +59,20 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"
-STRING_PATH    = PROJECT_ROOT / "data" / "external"  / "string_ppi_edges.tsv"
-RESULTS_DIR    = PROJECT_ROOT / "data" / "results"
-MODELS_DIR     = PROJECT_ROOT / "data" / "models"
+PROCESSED_PATH = Path(
+    os.environ.get(
+        "PDD_PROCESSED_PATH",
+        str(PROJECT_ROOT / "data" / "processed" / "norman2019_processed.h5ad"),
+    )
+)
+STRING_PATH    = Path(
+    os.environ.get(
+        "PDD_STRING_PATH",
+        str(PROJECT_ROOT / "data" / "external" / "string_ppi_edges.tsv"),
+    )
+)
+RESULTS_DIR    = Path(os.environ.get("PDD_RESULTS_DIR", str(PROJECT_ROOT / "data" / "results")))
+MODELS_DIR     = Path(os.environ.get("PDD_MODELS_DIR", str(PROJECT_ROOT / "data" / "models")))
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +80,8 @@ METRICS_PATH = RESULTS_DIR / "graph_model_metrics.json"
 MODEL_PATH   = MODELS_DIR  / "graph_perturbation_model.pt"
 PREV_METRICS = RESULTS_DIR / "perturbation_effect_metrics.json"
 
-from src.constants import SEED, CONTROL_LABEL  # noqa: E402
+from src.constants import CONTROL_LABEL, SEED  # noqa: E402
+from src.runtime_paths import env_int  # noqa: E402
 
 # ── Hyperparameters ────────────────────────────────────────────────────────
 GENE_EMB_DIM  = 64
@@ -77,8 +89,8 @@ GCN_HIDDEN    = 128
 GCN_OUT       = 64
 CTRL_HIDDEN   = 512
 LR            = 1e-3
-BATCH_SIZE    = 256
-EPOCHS        = 40
+BATCH_SIZE    = env_int("PDD_BATCH_SIZE", 256)
+EPOCHS        = env_int("PDD_EPOCHS", 40)
 DROPOUT       = 0.3
 
 torch.manual_seed(SEED)
@@ -153,7 +165,9 @@ with open(STRING_PATH) as f:
         # HVG–HVG edges → GCN adjacency
         if a_in and b_in:
             i, j = gene_to_idx[a], gene_to_idx[b]
-            rows.extend([i, j]); cols.extend([j, i]); weights.extend([w, w])
+            rows.extend([i, j])
+            cols.extend([j, i])
+            weights.extend([w, w])
 
         # Edges involving a perturbed (non-HVG) gene → pert neighbour map
         # Format: geneA is the perturbed gene, geneB is a HVG (or vice versa)
@@ -405,7 +419,7 @@ mean_ctrl_t = torch.from_numpy(mean_ctrl).unsqueeze(0).to(DEVICE)
 
 all_pred, all_tgt = [], []
 with torch.no_grad():
-    for ctrl, pidx, tgt in test_loader:
+    for _ctrl, pidx, tgt in test_loader:
         mc   = mean_ctrl_t.expand(tgt.size(0), -1)
         pred = model(mc, pidx.to(DEVICE))
         all_pred.append(pred.cpu().numpy())
@@ -512,10 +526,10 @@ else:
 print("  " + "─" * 70)
 
 sorted_perts = sorted(pert_eval.items(), key=lambda x: x[1]["pearson_r"])
-print(f"\n  Hardest perturbations (graph model):")
+print("\n  Hardest perturbations (graph model):")
 for p, v in sorted_perts[:5]:
     print(f"    {p:<36s}  r={v['pearson_r']:+.3f}  n={v['n_cells']}")
-print(f"  Easiest perturbations (graph model):")
+print("  Easiest perturbations (graph model):")
 for p, v in sorted_perts[-5:]:
     print(f"    {p:<36s}  r={v['pearson_r']:+.3f}  n={v['n_cells']}")
 
