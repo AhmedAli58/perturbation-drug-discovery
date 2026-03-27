@@ -61,6 +61,7 @@ logs/
 wandb/
 mlruns/
 lightning_logs/
+artifacts/
 
 # ── Coverage / testing ───────────────────────────────────────────────────────
 .coverage

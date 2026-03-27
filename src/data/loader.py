@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import anndata as ad
-import scanpy as sc
+if TYPE_CHECKING:
+    import anndata as ad
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,14 @@ def load_h5ad(path: str | Path) -> ad.AnnData:
         raise FileNotFoundError(f"File not found: {path}")
     if path.suffix != ".h5ad":
         raise ValueError(f"Expected .h5ad file, got: {path.suffix}")
+
+    try:
+        import anndata as ad
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "anndata is required to load .h5ad files. "
+            "Install project dependencies with `pip install -e .`."
+        ) from exc
 
     logger.info("Loading .h5ad from %s", path)
     adata = ad.read_h5ad(path)
@@ -55,6 +64,14 @@ def load_10x_mtx(directory: str | Path) -> ad.AnnData:
     directory = Path(directory)
     if not directory.is_dir():
         raise NotADirectoryError(f"Directory not found: {directory}")
+
+    try:
+        import scanpy as sc
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "scanpy is required to load 10x MTX directories. "
+            "Install project dependencies with `pip install -e .`."
+        ) from exc
 
     logger.info("Loading 10x MTX from %s", directory)
     adata = sc.read_10x_mtx(directory, var_names="gene_symbols", cache=True)
