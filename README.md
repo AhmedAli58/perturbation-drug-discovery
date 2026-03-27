@@ -101,6 +101,29 @@ The implementation is structured around five slices:
 - [Problem definition](docs/problem-definition.md)
 - [Benchmark specification](docs/benchmark-spec.md)
 - [Architecture](docs/architecture.md)
+- [Runbook](docs/runbook.md)
+
+## Quickstart
+
+```bash
+python3 -m pip install -e ".[dev]"
+python3 -m perturbation_dd prepare-data --config configs/base.yaml --split cell_split_v1
+python3 -m perturbation_dd prepare-data --config configs/base.yaml --split pert_split_v1
+python3 -m perturbation_dd train --config configs/base.yaml --task classification --model logreg --split cell_split_v1
+python3 -m perturbation_dd train --config configs/base.yaml --task response_known --model graph_gcn --split cell_split_v1
+python3 -m perturbation_dd evaluate --config configs/base.yaml --run-id <run-id>
+python3 -m perturbation_dd build-report --config configs/base.yaml --run-id <run-id>
+python3 -m perturbation_dd rank-candidates --config configs/base.yaml --input candidates.json --output ranked.json --split pert_split_v1
+uvicorn perturbation_dd.serving.api:app --host 0.0.0.0 --port 8000
+```
+
+The ranking interface accepts a JSON payload like:
+
+```json
+{
+  "candidates": ["KLF1", "CEBPA"]
+}
+```
 
 ## Legacy Artifacts
 
